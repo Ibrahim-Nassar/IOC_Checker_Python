@@ -291,6 +291,7 @@ class IOCCheckerGUI:
         self.root.geometry("1000x700")
         self.q = queue.Queue()
         self.running = False
+        self.process = None  # Track the running process
         self.show_only = tk.BooleanVar(value=True)
         self.no_virustotal = tk.BooleanVar(value=False)
         self.stats = {'threat': 0, 'clean': 0, 'error': 0, 'total': 0}
@@ -353,6 +354,9 @@ class IOCCheckerGUI:
         self.btn_check = ttk.Button(btnf, text="Check", style='Act.TButton', 
                                    command=self._start_single)
         self.btn_check.pack(side=tk.LEFT)
+        self.btn_stop = ttk.Button(btnf, text="Stop", style='Bad.TButton', 
+                                  command=self._stop_processing, state='disabled')
+        self.btn_stop.pack(side=tk.LEFT, padx=(5, 0))
         ttk.Button(btnf, text="Clear", command=self._clear).pack(side=tk.LEFT, padx=(5, 0))
         
         # Batch processing
@@ -537,9 +541,9 @@ class IOCCheckerGUI:
     def _run_sub(self, cmd):
         try:
             self._show_progress("Starting process...")
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, 
+            self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, 
                                      stderr=subprocess.STDOUT, text=True)
-            for line in process.stdout:
+            for line in self.process.stdout:
                 line_stripped = line.rstrip()
                 self.q.put((_classify(line_stripped), line_stripped))
                 
@@ -563,6 +567,14 @@ class IOCCheckerGUI:
             self._hide_progress()
             self.q.put(("info", "✓ completed"))
 
+    def _poll(self):
+        while not self.q.empty():
+            typ, msg = self.q.get_nowait()
+            self._log(typ, msg)
+            if "✓ completed" in msg.lower():
+                self._reset_ui_state()
+        self.root.after_idle(lambda: self.root.after(150, self._poll))
+
     def _start_single(self, *_):
         if self.running:
             return
@@ -570,19 +582,23 @@ class IOCCheckerGUI:
         t = self.type_cb.get()
         if not v:
             return
+        
+        # Check if value looks like a date/time and reject it
+        if self._is_datetime_format(v):
+            self._log("error", "Date/time values are not valid IOCs. Please enter an IP, domain, URL, or hash.")
+            return
+            
         self._log("info", f"=== {t}:{v} ===")
         cmd = [PYTHON, SCRIPT, t, v]
-        if self.no_virustotal.get():
-            cmd.append("--no-virustotal")
         
-        # Add provider arguments
+        # Add provider arguments based on user selection
         provider_args = self._build_provider_args()
         cmd.extend(provider_args)
         
         self.processed_iocs = 0
         self.total_iocs = 1
+        self._start_processing()
         threading.Thread(target=self._run_sub, args=(cmd,), daemon=True).start()
-        self.running = True
 
     def _start_batch(self):
         if self.running:
@@ -593,44 +609,32 @@ class IOCCheckerGUI:
         
         self._log("info", f"=== Batch {p} ===")
         
-        # Use format-agnostic approach
-        path = Path(p)
-        if path.suffix.lower() in ['.csv', '.tsv', '.xlsx', '.txt']:
-            cmd = [PYTHON, SCRIPT, "--file", p]
-        else:
-            # Fallback to old behavior
-            t = self.type_cb.get()
-            if p.lower().endswith(".csv"):
-                cmd = [PYTHON, SCRIPT, "--csv", p]
-            else:
-                cmd = [PYTHON, SCRIPT, t, "--file", p]
+        # Use format-agnostic approach with file flag
+        cmd = [PYTHON, SCRIPT, "--file", p]
         
-        if self.no_virustotal.get():
-            cmd.append("--no-virustotal")
-        
-        # Add provider arguments
+        # Add provider arguments based on user selection
         provider_args = self._build_provider_args()
         cmd.extend(provider_args)
         
         self.processed_iocs = 0
         self.total_iocs = 0
+        self._start_processing()
         threading.Thread(target=self._run_sub, args=(cmd,), daemon=True).start()
-        self.running = True
 
-    def _browse(self):
-        filetypes = [
-            ("All Supported", "*.csv;*.tsv;*.xlsx;*.txt"),
-            ("CSV files", "*.csv"),
-            ("TSV files", "*.tsv"), 
-            ("Excel files", "*.xlsx"),
-            ("Text files", "*.txt"),
-            ("All files", "*.*")
+    def _is_datetime_format(self, value):
+        """Check if value looks like a date/time format to avoid false positives."""
+        # Common date/time patterns that might be mistaken for IOCs
+        datetime_patterns = [
+            r'^\d{4}-\d{2}-\d{2}',  # YYYY-MM-DD
+            r'^\d{2}[-/]\d{2}[-/]\d{4}',  # MM/DD/YYYY or DD/MM/YYYY
+            r'^\d{1,2}:\d{2}',  # HH:MM
+            r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}',  # ISO datetime
         ]
-        p = filedialog.askopenfilename(filetypes=filetypes)
-        if p:
-            self.file_var.set(p)
-            self._update_format_info(p)
-            self._validate_file(p)
+        
+        for pattern in datetime_patterns:
+            if re.match(pattern, value.strip()):
+                return True
+        return False
 
     def _clear(self):
         self.out.config(state=tk.NORMAL)
@@ -651,14 +655,6 @@ class IOCCheckerGUI:
             self.stats[typ] += 1
             self.lab_stats[typ].configure(text=f"{typ}:{self.stats[typ]}")
         self.lab_stats['total'].configure(text=f"total:{self.stats['total']}")
-
-    def _poll(self):
-        while not self.q.empty():
-            typ, msg = self.q.get_nowait()
-            self._log(typ, msg)
-            if "✓ completed" in msg.lower():
-                self.running = False
-        self.root.after_idle(lambda: self.root.after(150, self._poll))
 
     def run(self):
         self.root.mainloop()
@@ -746,6 +742,48 @@ class IOCCheckerGUI:
     def _update_preview_error(self, error):
         """Update preview error on main thread."""
         self.format_label.config(text=f"Error: {error}", foreground="red")
+
+    def _stop_processing(self):
+        """Stop the current processing operation."""
+        if self.process and self.running:
+            try:
+                self.process.terminate()
+                self._log("warning", "Processing stopped by user")
+                self.running = False
+                self._hide_progress()
+                self._reset_ui_state()
+            except Exception as e:
+                self._log("error", f"Error stopping process: {e}")
+
+    def _reset_ui_state(self):
+        """Reset UI state after processing completes or stops."""
+        self.btn_check.config(state='normal')
+        self.btn_batch.config(state='normal')
+        self.btn_stop.config(state='disabled')
+        self.running = False
+        self.process = None
+
+    def _start_processing(self):
+        """Common setup when starting any processing operation."""
+        self.btn_check.config(state='disabled')
+        self.btn_batch.config(state='disabled')
+        self.btn_stop.config(state='normal')
+        self.running = True
+
+    def _browse(self):
+        filetypes = [
+            ("All Supported", "*.csv;*.tsv;*.xlsx;*.txt"),
+            ("CSV files", "*.csv"),
+            ("TSV files", "*.tsv"), 
+            ("Excel files", "*.xlsx"),
+            ("Text files", "*.txt"),
+            ("All files", "*.*")
+        ]
+        p = filedialog.askopenfilename(filetypes=filetypes)
+        if p:
+            self.file_var.set(p)
+            self._update_format_info(p)
+            self._validate_file(p)
 
 # Keep original class name for compatibility
 App = IOCCheckerGUI
