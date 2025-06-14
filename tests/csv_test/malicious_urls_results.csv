@@ -1,291 +1,199 @@
-ioc,ioc_type,vt_status,otx_status,abuseipdb_status,threatfox_status,urlhaus_status,overall
-6/4/2025 11:07,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://176.100.37.77/sh4Offlineelf,url,n/a,clean,n/a,clean,n/a,LOW
-http://176.100.37.77/arm5Offlineelf,url,n/a,clean,n/a,clean,n/a,LOW
-http://176.100.37.77/arm7Offlineelf,url,n/a,clean,n/a,clean,n/a,LOW
-http://176.100.37.77/ppcOfflineelf,url,n/a,clean,n/a,clean,n/a,LOW
-http://176.100.37.77/arm6Offlineelf,url,n/a,clean,n/a,clean,n/a,LOW
-http://176.100.37.77/m68kOfflineelf,url,n/a,clean,n/a,clean,n/a,LOW
-http://176.100.37.77/armOfflineelf,url,n/a,clean,n/a,clean,n/a,LOW
-http://176.100.37.77/mipsOfflineelf,url,n/a,clean,n/a,clean,n/a,LOW
-http://176.100.37.77/mpslOfflineelf,url,n/a,clean,n/a,clean,n/a,LOW
-http://176.100.37.77/spcOfflineelf,url,n/a,clean,n/a,clean,n/a,LOW
-http://176.100.37.77/x86Offlineelf,url,n/a,clean,n/a,clean,n/a,LOW
-6/2/2025 9:59,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://103.245.237.112/where/.arm6Onlineelf,url,n/a,clean,n/a,clean,n/a,LOW
-http://103.245.237.112/where/.spcOnlineelf,url,n/a,clean,n/a,clean,n/a,LOW
-http://103.245.237.112/where/.arm5Onlineelf,url,n/a,clean,n/a,clean,n/a,LOW
-http://103.245.237.112/where/.sh4Onlineelf,url,n/a,clean,n/a,clean,n/a,LOW
-http://103.245.237.112/where/.mipsOnlineelf,url,n/a,clean,n/a,clean,n/a,LOW
-http://103.245.237.112/where/wget.shOnline,url,n/a,clean,n/a,clean,n/a,LOW
-http://103.245.237.112/where/.m68kOnlineelf,url,n/a,clean,n/a,clean,n/a,LOW
-http://103.245.237.112/where/.x86Onlineelf,url,n/a,clean,n/a,clean,n/a,LOW
-http://103.245.237.112/where/.x86_64Offlineelf,url,n/a,clean,n/a,clean,n/a,LOW
-6/1/2025 7:19,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://czgazik.one/Documents/lir.lnk,url,n/a,malicious,n/a,clean,malicious,HIGH
-http://www.trampik.pro/Documents/pro.lnk,url,n/a,malicious,n/a,clean,malicious,HIGH
-http://www.trampik.pro/Documents/lir.lnk,url,n/a,malicious,n/a,clean,malicious,HIGH
-5/31/2025 18:46,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://45.188.109.23/x/post/install.sh,url,n/a,clean,n/a,clean,n/a,LOW
-http://45.188.109.23/x/post/payload.bin,url,n/a,clean,n/a,clean,n/a,LOW
-5/31/2025 15:22,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://185.192.52.78/malware/update.php,url,n/a,clean,n/a,clean,n/a,LOW
-http://185.192.52.78/malware/exploit.exe,url,n/a,clean,n/a,clean,n/a,LOW
-5/31/2025 12:05,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://94.130.56.77/rat/server.exe,url,n/a,clean,n/a,clean,n/a,LOW
-http://94.130.56.77/rat/config.json,url,n/a,clean,n/a,clean,n/a,LOW
-5/30/2025 21:08,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://213.92.83.45/download/agent.sh,url,n/a,clean,n/a,clean,n/a,LOW
-http://213.92.83.45/download/installer.bin,url,n/a,clean,n/a,clean,n/a,LOW
-5/29/2025 19:17,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://167.114.43.22/payloads/setup.exe,url,n/a,clean,n/a,clean,n/a,LOW
-http://167.114.43.22/payloads/zloader.dll,url,n/a,clean,n/a,clean,n/a,LOW
-5/28/2025 17:54,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://198.51.100.14/scripts/malicious.js,url,n/a,clean,n/a,clean,n/a,LOW
-http://198.51.100.14/scripts/stealer.php,url,n/a,clean,n/a,clean,n/a,LOW
-5/27/2025 14:30,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://37.48.120.11/drive/autoupdate.sh,url,n/a,clean,n/a,clean,n/a,LOW
-http://37.48.120.11/drive/productivity.exe,url,n/a,clean,n/a,clean,n/a,LOW
-5/26/2025 10:23,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://51.15.45.103/x32/cryptominer.bin,url,n/a,clean,n/a,clean,n/a,LOW
-http://51.15.45.103/x32/cleanup.sh,url,n/a,clean,n/a,clean,n/a,LOW
-5/25/2025 22:11,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://192.0.2.56/libs/injector.dll,url,n/a,clean,n/a,clean,n/a,LOW
-http://192.0.2.56/libs/config.dat,url,n/a,clean,n/a,clean,n/a,LOW
-5/24/2025 18:45,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://103.21.244.0/BadScript/backdoor.php,url,n/a,clean,n/a,clean,n/a,LOW
-http://103.21.244.0/BadScript/loader.bin,url,n/a,clean,n/a,clean,n/a,LOW
-5/23/2025 16:30,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://45.79.168.12/x/core/exploit.zip,url,n/a,clean,n/a,clean,n/a,LOW
-http://45.79.168.12/x/core/installer.sh,url,n/a,clean,n/a,clean,n/a,LOW
-5/22/2025 13:09,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://218.100.23.45/updates/evilupdate.exe,url,n/a,clean,n/a,clean,n/a,LOW
-http://218.100.23.45/updates/config.xml,url,n/a,clean,n/a,clean,n/a,LOW
-5/21/2025 11:02,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://5.189.132.10/payloads/spyware.dll,url,n/a,clean,n/a,clean,n/a,LOW
-http://5.189.132.10/payloads/installer.bin,url,n/a,clean,n/a,clean,n/a,LOW
-5/20/2025 9:17,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://72.11.221.88/serve/malware_installer.sh,url,n/a,clean,n/a,clean,n/a,LOW
-http://72.11.221.88/serve/keylogger.exe,url,n/a,clean,n/a,clean,n/a,LOW
-5/19/2025 7:48,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://185.199.108.14/updates/stealer.py,url,n/a,clean,n/a,clean,n/a,LOW
-http://185.199.108.14/updates/agent.bin,url,n/a,clean,n/a,clean,n/a,LOW
-5/18/2025 5:39,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://89.234.157.23/x86_64/backdoor.elf,url,n/a,clean,n/a,clean,n/a,LOW
-http://89.234.157.23/x86_64/config.json,url,n/a,clean,n/a,clean,n/a,LOW
-5/17/2025 4:15,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://64.227.1.45/stage1/poison.dll,url,n/a,clean,n/a,clean,n/a,LOW
-http://64.227.1.45/stage1/launcher.bin,url,n/a,clean,n/a,clean,n/a,LOW
-5/16/2025 3:07,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://138.68.5.123/tools/cryptor.exe,url,n/a,clean,n/a,clean,n/a,LOW
-http://138.68.5.123/tools/cryptor.cfg,url,n/a,clean,n/a,clean,n/a,LOW
-5/15/2025 2:22,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://104.131.12.56/x32/injector.bin,url,n/a,clean,n/a,clean,n/a,LOW
-http://104.131.12.56/x32/exploit.js,url,n/a,clean,n/a,clean,n/a,LOW
-5/14/2025 1:11,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://157.230.45.67/payload/latest.zip,url,n/a,clean,n/a,clean,n/a,LOW
-http://157.230.45.67/payload/installer.sh,url,n/a,clean,n/a,clean,n/a,LOW
-5/13/2025 23:04,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://192.0.2.99/backdoor/evil.exe,url,n/a,clean,n/a,clean,n/a,LOW
-http://192.0.2.99/backdoor/config.yml,url,n/a,clean,n/a,clean,n/a,LOW
-5/12/2025 21:55,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://54.38.24.111/inject/x64shell.bin,url,n/a,clean,n/a,clean,n/a,LOW
-http://54.38.24.111/inject/Stealer.dll,url,n/a,clean,n/a,clean,n/a,LOW
-5/11/2025 20:11,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://167.99.1.123/x64/malagent.exe,url,n/a,clean,n/a,clean,n/a,LOW
-http://167.99.1.123/x64/config.dat,url,n/a,clean,n/a,clean,n/a,LOW
-5/10/2025 18:02,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://198.51.100.200/updates/hellbot.sh,url,n/a,clean,n/a,clean,n/a,LOW
-http://198.51.100.200/updates/agent.bin,url,n/a,clean,n/a,clean,n/a,LOW
-5/9/2025 16:43,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://45.79.70.56/payloads/evilpayload.exe,url,n/a,clean,n/a,clean,n/a,LOW
-http://45.79.70.56/payloads/config.php,url,n/a,clean,n/a,clean,n/a,LOW
-5/8/2025 14:17,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://74.207.250.124/stealer/steal.jar,url,n/a,clean,n/a,clean,n/a,LOW
-http://74.207.250.124/stealer/settings.xml,url,n/a,clean,n/a,clean,n/a,LOW
-5/7/2025 12:28,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://159.89.123.11/scripts/proxy.bin,url,n/a,clean,n/a,clean,n/a,LOW
-http://159.89.123.11/scripts/loader.js,url,n/a,clean,n/a,clean,n/a,LOW
-5/6/2025 10:04,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://144.217.81.45/x86/malware.exe,url,n/a,clean,n/a,clean,n/a,LOW
-http://144.217.81.45/x86/config.dat,url,n/a,clean,n/a,clean,n/a,LOW
-5/5/2025 8:11,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://167.172.12.33/session/backdoor.bat,url,n/a,clean,n/a,clean,n/a,LOW
-http://167.172.12.33/session/agent.dll,url,n/a,clean,n/a,clean,n/a,LOW
-5/4/2025 6:59,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://178.62.23.89/logger/keylogger.exe,url,n/a,clean,n/a,clean,n/a,LOW
-http://178.62.23.89/logger/settings.ini,url,n/a,clean,n/a,clean,n/a,LOW
-5/3/2025 23:41,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://65.21.11.123/exploit/maindrop.zip,url,n/a,clean,n/a,clean,n/a,LOW
-http://65.21.11.123/exploit/install.sh,url,n/a,clean,n/a,clean,n/a,LOW
-5/2/2025 21:37,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://198.199.86.11/rat/mirai.bin,url,n/a,clean,n/a,clean,n/a,LOW
-http://198.199.86.11/rat/config.json,url,n/a,clean,n/a,clean,n/a,LOW
-5/1/2025 19:25,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://51.195.37.14/crypto/miner.sh,url,n/a,clean,n/a,clean,n/a,LOW
-http://51.195.37.14/crypto/worker.bin,url,n/a,clean,n/a,clean,n/a,LOW
-4/30/2025 17:16,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://185.244.26.49/adware/adinstall.exe,url,n/a,clean,n/a,clean,n/a,LOW
-http://185.244.26.49/adware/config.xml,url,n/a,clean,n/a,clean,n/a,LOW
-4/29/2025 15:46,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://104.238.223.44/payloads/petrota.sh,url,n/a,clean,n/a,clean,n/a,LOW
-http://104.238.223.44/payloads/drainer.bin,url,n/a,clean,n/a,clean,n/a,LOW
-4/28/2025 12:54,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://138.68.248.246/loader/dropper.exe,url,n/a,clean,n/a,clean,n/a,LOW
-http://138.68.248.246/loader/settings.json,url,n/a,clean,n/a,clean,n/a,LOW
-4/27/2025 11:21,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://192.0.2.200/webshell.asp,url,n/a,clean,n/a,clean,n/a,LOW
-http://192.0.2.200/webshell/config.dat,url,n/a,clean,n/a,clean,n/a,LOW
-4/26/2025 9:17,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://142.93.112.11/cryptor/ransom.exe,url,n/a,clean,n/a,clean,n/a,LOW
-http://142.93.112.11/cryptor/key.pub,url,n/a,clean,n/a,clean,n/a,LOW
-4/25/2025 6:04,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://34.122.10.128/updater/auto.sh,url,n/a,clean,n/a,clean,n/a,LOW
-http://34.122.10.128/updater/config.json,url,n/a,clean,n/a,clean,n/a,LOW
-4/24/2025 4:08,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://165.227.3.45/stealer/injector.dll,url,n/a,clean,n/a,clean,n/a,LOW
-http://165.227.3.45/stealer/agent.bin,url,n/a,clean,n/a,clean,n/a,LOW
-4/23/2025 2:33,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://51.79.103.123/backdoor/entry.py,url,n/a,clean,n/a,clean,n/a,LOW
-http://51.79.103.123/backdoor/settings.lua,url,n/a,clean,n/a,clean,n/a,LOW
-4/22/2025 0:22,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://104.155.236.23/virus/archive.zip,url,n/a,clean,n/a,clean,n/a,LOW
-http://104.155.236.23/virus/install.sh,url,n/a,clean,n/a,clean,n/a,LOW
-4/20/2025 22:14,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://68.183.52.11/stealth/rootkit.bin,url,n/a,clean,n/a,clean,n/a,LOW
-http://68.183.52.11/stealth/config.cfg,url,n/a,clean,n/a,clean,n/a,LOW
-4/19/2025 20:11,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://165.227.192.13/payloads/loader.dll,url,n/a,clean,n/a,clean,n/a,LOW
-http://165.227.192.13/payloads/setup.exe,url,n/a,clean,n/a,clean,n/a,LOW
-4/18/2025 18:05,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://34.75.111.23/rat/keylogger.exe,url,n/a,clean,n/a,clean,n/a,LOW
-http://34.75.111.23/rat/config.yaml,url,n/a,clean,n/a,clean,n/a,LOW
-4/17/2025 15:50,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://165.227.95.12/spyware/spy.dll,url,n/a,clean,n/a,clean,n/a,LOW
-http://165.227.95.12/spyware/settings.json,url,n/a,clean,n/a,clean,n/a,LOW
-4/16/2025 13:02,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://188.166.100.64/updater/AutoUpdate.exe,url,n/a,clean,n/a,clean,n/a,LOW
-http://188.166.100.64/updater/config.xml,url,n/a,clean,n/a,clean,n/a,LOW
-4/15/2025 10:44,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://167.172.170.15/installer/malicious.sh,url,n/a,clean,n/a,clean,n/a,LOW
-http://167.172.170.15/installer/agent.bin,url,n/a,clean,n/a,clean,n/a,LOW
-4/14/2025 8:14,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://138.68.185.11/stage2/dropper.exe,url,n/a,clean,n/a,clean,n/a,LOW
-http://138.68.185.11/stage2/config.dat,url,n/a,clean,n/a,clean,n/a,LOW
-4/13/2025 5:52,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://142.93.146.23/exploit/evil.ps1,url,n/a,clean,n/a,clean,n/a,LOW
-http://142.93.146.23/exploit/settings.json,url,n/a,clean,n/a,clean,n/a,LOW
-4/12/2025 4:01,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://165.227.3.123/backdoor/agent.py,url,n/a,clean,n/a,clean,n/a,LOW
-http://165.227.3.123/backdoor/config.yml,url,n/a,clean,n/a,clean,n/a,LOW
-4/11/2025 2:37,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://178.128.81.131/update/linux.bin,url,n/a,clean,n/a,clean,n/a,LOW
-http://178.128.81.131/update/config.json,url,n/a,clean,n/a,clean,n/a,LOW
-4/10/2025 0:26,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://167.172.1.45/payloads/ransom.sh,url,n/a,clean,n/a,clean,n/a,LOW
-http://167.172.1.45/payloads/key.pub,url,n/a,clean,n/a,clean,n/a,LOW
-4/8/2025 21:14,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://46.101.58.15/cryptor/miner.bin,url,n/a,clean,n/a,clean,n/a,LOW
-http://46.101.58.15/cryptor/config.cfg,url,n/a,clean,n/a,clean,n/a,LOW
-4/7/2025 19:02,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://165.227.106.23/sh/dropper.exe,url,n/a,clean,n/a,clean,n/a,LOW
-http://165.227.106.23/sh/settings.ini,url,n/a,clean,n/a,clean,n/a,LOW
-4/6/2025 16:48,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://188.166.24.129/stealer/track.jar,url,n/a,clean,n/a,clean,n/a,LOW
-http://188.166.24.129/stealer/config.json,url,n/a,clean,n/a,clean,n/a,LOW
-4/5/2025 14:16,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://138.68.100.23/exploit/attack.js,url,n/a,clean,n/a,clean,n/a,LOW
-http://138.68.100.23/exploit/config.dat,url,n/a,clean,n/a,clean,n/a,LOW
-4/4/2025 11:57,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://167.99.123.45/drone/agent.sh,url,n/a,clean,n/a,clean,n/a,LOW
-http://167.99.123.45/drone/payload.bin,url,n/a,clean,n/a,clean,n/a,LOW
-4/3/2025 9:41,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://138.68.248.246/install/evil.exe,url,n/a,clean,n/a,clean,n/a,LOW
-http://138.68.248.246/install/config.json,url,n/a,clean,n/a,clean,n/a,LOW
-4/2/2025 7:22,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://165.227.12.23/malware/loader.dll,url,n/a,clean,n/a,clean,n/a,LOW
-http://165.227.12.23/malware/config.dat,url,n/a,clean,n/a,clean,n/a,LOW
-4/1/2025 5:03,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://178.128.97.45/updater/auto.ps1,url,n/a,clean,n/a,clean,n/a,LOW
-http://178.128.97.45/updater/settings.yaml,url,n/a,clean,n/a,clean,n/a,LOW
-3/31/2025 2:46,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://142.93.112.11/crypto/steal.sh,url,n/a,clean,n/a,clean,n/a,LOW
-http://142.93.112.11/crypto/config.json,url,n/a,clean,n/a,clean,n/a,LOW
-3/29/2025 23:35,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://188.166.79.129/gui/dropper.exe,url,n/a,clean,n/a,clean,n/a,LOW
-http://188.166.79.129/gui/settings.ini,url,n/a,clean,n/a,clean,n/a,LOW
-3/28/2025 21:28,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://159.203.45.23/rat/keylogger.dll,url,n/a,clean,n/a,clean,n/a,LOW
-http://159.203.45.23/rat/config.dat,url,n/a,clean,n/a,clean,n/a,LOW
-3/27/2025 19:14,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://144.217.81.45/malicious/spyware.bin,url,n/a,clean,n/a,clean,n/a,LOW
-http://144.217.81.45/malicious/config.json,url,n/a,clean,n/a,clean,n/a,LOW
-3/26/2025 17:01,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://104.131.12.56/stealer/eagle.jar,url,n/a,clean,n/a,clean,n/a,LOW
-http://104.131.12.56/stealer/settings.txt,url,n/a,clean,n/a,clean,n/a,LOW
-3/25/2025 14:49,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://198.199.86.11/cryptominer/miner.sh,url,n/a,clean,n/a,clean,n/a,LOW
-http://198.199.86.11/cryptominer/config.cfg,url,n/a,clean,n/a,clean,n/a,LOW
-3/24/2025 12:32,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://46.101.58.15/backdoor/evil.ps1,url,n/a,clean,n/a,clean,n/a,LOW
-http://46.101.58.15/backdoor/config.json,url,n/a,clean,n/a,clean,n/a,LOW
-3/23/2025 10:16,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://159.203.45.23/dropper/agent.py,url,n/a,clean,n/a,clean,n/a,LOW
-http://159.203.45.23/dropper/settings.yaml,url,n/a,clean,n/a,clean,n/a,LOW
-3/22/2025 8:05,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://165.227.3.123/malware/zloader.exe,url,n/a,clean,n/a,clean,n/a,LOW
-http://165.227.3.123/malware/config.dat,url,n/a,clean,n/a,clean,n/a,LOW
-3/21/2025 5:52,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://138.68.185.11/update/mirai.bin,url,n/a,clean,n/a,clean,n/a,LOW
-http://138.68.185.11/update/config.json,url,n/a,clean,n/a,clean,n/a,LOW
-3/20/2025 3:44,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://178.128.81.131/dropper/poison.dll,url,n/a,clean,n/a,clean,n/a,LOW
-http://178.128.81.131/dropper/config.cfg,url,n/a,clean,n/a,clean,n/a,LOW
-3/19/2025 1:37,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://142.93.112.11/exploit/exploit.js,url,n/a,clean,n/a,clean,n/a,LOW
-http://142.93.112.11/exploit/config.dat,url,n/a,clean,n/a,clean,n/a,LOW
-3/18/2025 23:25,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://188.166.24.129/rat/agent.exe,url,n/a,clean,n/a,clean,n/a,LOW
-http://188.166.24.129/rat/config.ini,url,n/a,clean,n/a,clean,n/a,LOW
-3/17/2025 21:02,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://159.203.45.23/backdoor/keylogger.sh,url,n/a,clean,n/a,clean,n/a,LOW
-http://159.203.45.23/backdoor/settings.json,url,n/a,clean,n/a,clean,n/a,LOW
-3/16/2025 18:45,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://144.217.81.45/cryptominer/miner.bin,url,n/a,clean,n/a,clean,n/a,LOW
-http://144.217.81.45/cryptominer/config.cfg,url,n/a,clean,n/a,clean,n/a,LOW
-3/15/2025 16:22,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://104.131.12.56/stealer/Stealer.jar,url,n/a,clean,n/a,clean,n/a,LOW
-3/14/2025 14:08,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://198.199.86.11/rat/dropper.exe,url,n/a,clean,n/a,clean,n/a,LOW
-http://198.199.86.11/rat/config.ini,url,n/a,clean,n/a,clean,n/a,LOW
-3/13/2025 12:01,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://46.101.58.15/inject/evil.dll,url,n/a,clean,n/a,clean,n/a,LOW
-http://46.101.58.15/inject/config.json,url,n/a,clean,n/a,clean,n/a,LOW
-3/12/2025 9:55,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://159.203.45.23/spyware/backdoor.py,url,n/a,clean,n/a,clean,n/a,LOW
-http://159.203.45.23/spyware/settings.yaml,url,n/a,clean,n/a,clean,n/a,LOW
-3/11/2025 7:43,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://165.227.3.123/payloads/ransom.exe,url,n/a,clean,n/a,clean,n/a,LOW
-http://165.227.3.123/payloads/key.pub,url,n/a,clean,n/a,clean,n/a,LOW
-3/10/2025 5:29,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://138.68.185.11/dropper/dropper.exe,url,n/a,clean,n/a,clean,n/a,LOW
-http://138.68.185.11/dropper/config.dat,url,n/a,clean,n/a,clean,n/a,LOW
-3/9/2025 3:22,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://178.128.97.45/exploit/attack.js,url,n/a,clean,n/a,clean,n/a,LOW
-http://178.128.97.45/exploit/config.json,url,n/a,clean,n/a,clean,n/a,LOW
-3/8/2025 1:14,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://142.93.112.11/malware/launcher.exe,url,n/a,clean,n/a,clean,n/a,LOW
-http://142.93.112.11/malware/settings.xml,url,n/a,clean,n/a,clean,n/a,LOW
-3/6/2025 23:05,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://188.166.79.129/update/auto.sh,url,n/a,clean,n/a,clean,n/a,LOW
-http://188.166.79.129/update/config.json,url,n/a,clean,n/a,clean,n/a,LOW
-3/5/2025 20:58,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://159.203.45.23/malicious/dropper.bin,url,n/a,clean,n/a,clean,n/a,LOW
-http://159.203.45.23/malicious/config.cfg,url,n/a,clean,n/a,clean,n/a,LOW
-3/4/2025 18:41,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://144.217.81.45/rat/keylogger.exe,url,n/a,clean,n/a,clean,n/a,LOW
-http://144.217.81.45/rat/config.dat,url,n/a,clean,n/a,clean,n/a,LOW
-3/3/2025 16:32,filepath,n/a,n/a,n/a,n/a,n/a,LOW
-http://104.131.12.56/stealer/stealer.py,url,n/a,clean,n/a,clean,n/a,LOW
-http://104.131.12.56/stealer/config.json,url,n/a,clean,n/a,clean,n/a,LOW
-3/2/2025 14:05,filepath,n/a,n/a,n/a,n/a,n/a,LOW
+ioc,ioc_type,otx_status,overall
+http://176.100.37.77/sh4Offlineelf,url,clean,LOW
+http://176.100.37.77/arm5Offlineelf,url,clean,LOW
+http://176.100.37.77/arm7Offlineelf,url,clean,LOW
+http://176.100.37.77/ppcOfflineelf,url,clean,LOW
+http://176.100.37.77/arm6Offlineelf,url,clean,LOW
+http://176.100.37.77/m68kOfflineelf,url,clean,LOW
+http://176.100.37.77/armOfflineelf,url,clean,LOW
+http://176.100.37.77/mipsOfflineelf,url,clean,LOW
+http://176.100.37.77/mpslOfflineelf,url,clean,LOW
+http://176.100.37.77/spcOfflineelf,url,clean,LOW
+http://176.100.37.77/x86Offlineelf,url,clean,LOW
+http://103.245.237.112/where/.arm6Onlineelf,url,clean,LOW
+http://103.245.237.112/where/.spcOnlineelf,url,clean,LOW
+http://103.245.237.112/where/.arm5Onlineelf,url,clean,LOW
+http://103.245.237.112/where/.sh4Onlineelf,url,clean,LOW
+http://103.245.237.112/where/.mipsOnlineelf,url,clean,LOW
+http://103.245.237.112/where/wget.shOnline,url,clean,LOW
+http://103.245.237.112/where/.m68kOnlineelf,url,clean,LOW
+http://103.245.237.112/where/.x86Onlineelf,url,clean,LOW
+http://103.245.237.112/where/.x86_64Offlineelf,url,clean,LOW
+http://czgazik.one/Documents/lir.lnk,url,malicious,HIGH
+http://www.trampik.pro/Documents/pro.lnk,url,malicious,HIGH
+http://www.trampik.pro/Documents/lir.lnk,url,malicious,HIGH
+http://45.188.109.23/x/post/install.sh,url,clean,LOW
+http://45.188.109.23/x/post/payload.bin,url,clean,LOW
+http://185.192.52.78/malware/update.php,url,clean,LOW
+http://185.192.52.78/malware/exploit.exe,url,clean,LOW
+http://94.130.56.77/rat/server.exe,url,clean,LOW
+http://94.130.56.77/rat/config.json,url,clean,LOW
+http://213.92.83.45/download/agent.sh,url,clean,LOW
+http://213.92.83.45/download/installer.bin,url,clean,LOW
+http://167.114.43.22/payloads/setup.exe,url,clean,LOW
+http://167.114.43.22/payloads/zloader.dll,url,clean,LOW
+http://198.51.100.14/scripts/malicious.js,url,clean,LOW
+http://198.51.100.14/scripts/stealer.php,url,clean,LOW
+http://37.48.120.11/drive/autoupdate.sh,url,clean,LOW
+http://37.48.120.11/drive/productivity.exe,url,clean,LOW
+http://51.15.45.103/x32/cryptominer.bin,url,clean,LOW
+http://51.15.45.103/x32/cleanup.sh,url,clean,LOW
+http://192.0.2.56/libs/injector.dll,url,clean,LOW
+http://192.0.2.56/libs/config.dat,url,clean,LOW
+http://103.21.244.0/BadScript/backdoor.php,url,clean,LOW
+http://103.21.244.0/BadScript/loader.bin,url,clean,LOW
+http://45.79.168.12/x/core/exploit.zip,url,clean,LOW
+http://45.79.168.12/x/core/installer.sh,url,clean,LOW
+http://218.100.23.45/updates/evilupdate.exe,url,clean,LOW
+http://218.100.23.45/updates/config.xml,url,clean,LOW
+http://5.189.132.10/payloads/spyware.dll,url,clean,LOW
+http://5.189.132.10/payloads/installer.bin,url,clean,LOW
+http://72.11.221.88/serve/malware_installer.sh,url,clean,LOW
+http://72.11.221.88/serve/keylogger.exe,url,clean,LOW
+http://185.199.108.14/updates/stealer.py,url,clean,LOW
+http://185.199.108.14/updates/agent.bin,url,clean,LOW
+http://89.234.157.23/x86_64/backdoor.elf,url,clean,LOW
+http://89.234.157.23/x86_64/config.json,url,clean,LOW
+http://64.227.1.45/stage1/poison.dll,url,clean,LOW
+http://64.227.1.45/stage1/launcher.bin,url,clean,LOW
+http://138.68.5.123/tools/cryptor.exe,url,clean,LOW
+http://138.68.5.123/tools/cryptor.cfg,url,clean,LOW
+http://104.131.12.56/x32/injector.bin,url,clean,LOW
+http://104.131.12.56/x32/exploit.js,url,clean,LOW
+http://157.230.45.67/payload/latest.zip,url,clean,LOW
+http://157.230.45.67/payload/installer.sh,url,clean,LOW
+http://192.0.2.99/backdoor/evil.exe,url,clean,LOW
+http://192.0.2.99/backdoor/config.yml,url,clean,LOW
+http://54.38.24.111/inject/x64shell.bin,url,clean,LOW
+http://54.38.24.111/inject/Stealer.dll,url,clean,LOW
+http://167.99.1.123/x64/malagent.exe,url,clean,LOW
+http://167.99.1.123/x64/config.dat,url,clean,LOW
+http://198.51.100.200/updates/hellbot.sh,url,clean,LOW
+http://198.51.100.200/updates/agent.bin,url,clean,LOW
+http://45.79.70.56/payloads/evilpayload.exe,url,clean,LOW
+http://45.79.70.56/payloads/config.php,url,clean,LOW
+http://74.207.250.124/stealer/steal.jar,url,clean,LOW
+http://74.207.250.124/stealer/settings.xml,url,clean,LOW
+http://159.89.123.11/scripts/proxy.bin,url,clean,LOW
+http://159.89.123.11/scripts/loader.js,url,clean,LOW
+http://144.217.81.45/x86/malware.exe,url,clean,LOW
+http://144.217.81.45/x86/config.dat,url,clean,LOW
+http://167.172.12.33/session/backdoor.bat,url,clean,LOW
+http://167.172.12.33/session/agent.dll,url,clean,LOW
+http://178.62.23.89/logger/keylogger.exe,url,clean,LOW
+http://178.62.23.89/logger/settings.ini,url,clean,LOW
+http://65.21.11.123/exploit/maindrop.zip,url,clean,LOW
+http://65.21.11.123/exploit/install.sh,url,clean,LOW
+http://198.199.86.11/rat/mirai.bin,url,clean,LOW
+http://198.199.86.11/rat/config.json,url,clean,LOW
+http://51.195.37.14/crypto/miner.sh,url,clean,LOW
+http://51.195.37.14/crypto/worker.bin,url,clean,LOW
+http://185.244.26.49/adware/adinstall.exe,url,clean,LOW
+http://185.244.26.49/adware/config.xml,url,clean,LOW
+http://104.238.223.44/payloads/petrota.sh,url,clean,LOW
+http://104.238.223.44/payloads/drainer.bin,url,clean,LOW
+http://138.68.248.246/loader/dropper.exe,url,clean,LOW
+http://138.68.248.246/loader/settings.json,url,clean,LOW
+http://192.0.2.200/webshell.asp,url,clean,LOW
+http://192.0.2.200/webshell/config.dat,url,clean,LOW
+http://142.93.112.11/cryptor/ransom.exe,url,clean,LOW
+http://142.93.112.11/cryptor/key.pub,url,clean,LOW
+http://34.122.10.128/updater/auto.sh,url,clean,LOW
+http://34.122.10.128/updater/config.json,url,clean,LOW
+http://165.227.3.45/stealer/injector.dll,url,clean,LOW
+http://165.227.3.45/stealer/agent.bin,url,clean,LOW
+http://51.79.103.123/backdoor/entry.py,url,clean,LOW
+http://51.79.103.123/backdoor/settings.lua,url,clean,LOW
+http://104.155.236.23/virus/archive.zip,url,clean,LOW
+http://104.155.236.23/virus/install.sh,url,clean,LOW
+http://68.183.52.11/stealth/rootkit.bin,url,clean,LOW
+http://68.183.52.11/stealth/config.cfg,url,clean,LOW
+http://165.227.192.13/payloads/loader.dll,url,clean,LOW
+http://165.227.192.13/payloads/setup.exe,url,clean,LOW
+http://34.75.111.23/rat/keylogger.exe,url,clean,LOW
+http://34.75.111.23/rat/config.yaml,url,clean,LOW
+http://165.227.95.12/spyware/spy.dll,url,clean,LOW
+http://165.227.95.12/spyware/settings.json,url,clean,LOW
+http://188.166.100.64/updater/AutoUpdate.exe,url,clean,LOW
+http://188.166.100.64/updater/config.xml,url,clean,LOW
+http://167.172.170.15/installer/malicious.sh,url,clean,LOW
+http://167.172.170.15/installer/agent.bin,url,clean,LOW
+http://138.68.185.11/stage2/dropper.exe,url,clean,LOW
+http://138.68.185.11/stage2/config.dat,url,clean,LOW
+http://142.93.146.23/exploit/evil.ps1,url,clean,LOW
+http://142.93.146.23/exploit/settings.json,url,clean,LOW
+http://165.227.3.123/backdoor/agent.py,url,clean,LOW
+http://165.227.3.123/backdoor/config.yml,url,clean,LOW
+http://178.128.81.131/update/linux.bin,url,clean,LOW
+http://178.128.81.131/update/config.json,url,clean,LOW
+http://167.172.1.45/payloads/ransom.sh,url,clean,LOW
+http://167.172.1.45/payloads/key.pub,url,clean,LOW
+http://46.101.58.15/cryptor/miner.bin,url,clean,LOW
+http://46.101.58.15/cryptor/config.cfg,url,clean,LOW
+http://165.227.106.23/sh/dropper.exe,url,clean,LOW
+http://165.227.106.23/sh/settings.ini,url,clean,LOW
+http://188.166.24.129/stealer/track.jar,url,clean,LOW
+http://188.166.24.129/stealer/config.json,url,clean,LOW
+http://138.68.100.23/exploit/attack.js,url,clean,LOW
+http://138.68.100.23/exploit/config.dat,url,clean,LOW
+http://167.99.123.45/drone/agent.sh,url,clean,LOW
+http://167.99.123.45/drone/payload.bin,url,clean,LOW
+http://138.68.248.246/install/evil.exe,url,clean,LOW
+http://138.68.248.246/install/config.json,url,clean,LOW
+http://165.227.12.23/malware/loader.dll,url,clean,LOW
+http://165.227.12.23/malware/config.dat,url,clean,LOW
+http://178.128.97.45/updater/auto.ps1,url,clean,LOW
+http://178.128.97.45/updater/settings.yaml,url,clean,LOW
+http://142.93.112.11/crypto/steal.sh,url,clean,LOW
+http://142.93.112.11/crypto/config.json,url,clean,LOW
+http://188.166.79.129/gui/dropper.exe,url,clean,LOW
+http://188.166.79.129/gui/settings.ini,url,clean,LOW
+http://159.203.45.23/rat/keylogger.dll,url,clean,LOW
+http://159.203.45.23/rat/config.dat,url,clean,LOW
+http://144.217.81.45/malicious/spyware.bin,url,clean,LOW
+http://144.217.81.45/malicious/config.json,url,clean,LOW
+http://104.131.12.56/stealer/eagle.jar,url,clean,LOW
+http://104.131.12.56/stealer/settings.txt,url,clean,LOW
+http://198.199.86.11/cryptominer/miner.sh,url,clean,LOW
+http://198.199.86.11/cryptominer/config.cfg,url,clean,LOW
+http://46.101.58.15/backdoor/evil.ps1,url,clean,LOW
+http://46.101.58.15/backdoor/config.json,url,clean,LOW
+http://159.203.45.23/dropper/agent.py,url,clean,LOW
+http://159.203.45.23/dropper/settings.yaml,url,clean,LOW
+http://165.227.3.123/malware/zloader.exe,url,clean,LOW
+http://165.227.3.123/malware/config.dat,url,clean,LOW
+http://138.68.185.11/update/mirai.bin,url,clean,LOW
+http://138.68.185.11/update/config.json,url,clean,LOW
+http://178.128.81.131/dropper/poison.dll,url,clean,LOW
+http://178.128.81.131/dropper/config.cfg,url,clean,LOW
+http://142.93.112.11/exploit/exploit.js,url,clean,LOW
+http://142.93.112.11/exploit/config.dat,url,clean,LOW
+http://188.166.24.129/rat/agent.exe,url,clean,LOW
+http://188.166.24.129/rat/config.ini,url,clean,LOW
+http://159.203.45.23/backdoor/keylogger.sh,url,clean,LOW
+http://159.203.45.23/backdoor/settings.json,url,clean,LOW
+http://144.217.81.45/cryptominer/miner.bin,url,clean,LOW
+http://144.217.81.45/cryptominer/config.cfg,url,clean,LOW
+http://104.131.12.56/stealer/Stealer.jar,url,clean,LOW
+http://198.199.86.11/rat/dropper.exe,url,clean,LOW
+http://198.199.86.11/rat/config.ini,url,clean,LOW
+http://46.101.58.15/inject/evil.dll,url,clean,LOW
+http://46.101.58.15/inject/config.json,url,clean,LOW
+http://159.203.45.23/spyware/backdoor.py,url,clean,LOW
+http://159.203.45.23/spyware/settings.yaml,url,clean,LOW
+http://165.227.3.123/payloads/ransom.exe,url,clean,LOW
+http://165.227.3.123/payloads/key.pub,url,clean,LOW
+http://138.68.185.11/dropper/dropper.exe,url,clean,LOW
+http://138.68.185.11/dropper/config.dat,url,clean,LOW
+http://178.128.97.45/exploit/attack.js,url,clean,LOW
+http://178.128.97.45/exploit/config.json,url,clean,LOW
+http://142.93.112.11/malware/launcher.exe,url,clean,LOW
+http://142.93.112.11/malware/settings.xml,url,clean,LOW
+http://188.166.79.129/update/auto.sh,url,clean,LOW
+http://188.166.79.129/update/config.json,url,clean,LOW
+http://159.203.45.23/malicious/dropper.bin,url,clean,LOW
+http://159.203.45.23/malicious/config.cfg,url,clean,LOW
+http://144.217.81.45/rat/keylogger.exe,url,clean,LOW
+http://144.217.81.45/rat/config.dat,url,clean,LOW
+http://104.131.12.56/stealer/stealer.py,url,clean,LOW
+http://104.131.12.56/stealer/config.json,url,clean,LOW

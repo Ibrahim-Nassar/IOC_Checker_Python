@@ -42,6 +42,9 @@ AVAILABLE_PROVIDERS = {
     'shodan': 'Shodan (Device search)'
 }
 
+# Default always-on providers (can be customized by user)
+DEFAULT_ALWAYS_ON = ['abuseipdb', 'otx']
+
 def _classify(line: str) -> str:
     if ("🚨" in line or 
         re.search(r"(Malicious|Suspicious):[1-9]", line) or 
@@ -99,15 +102,15 @@ class ProviderDlg:
         """Build the provider selection dialog."""
         self.dialog = tk.Toplevel(self.parent)
         self.dialog.title("Select Threat Intelligence Providers")
-        self.dialog.geometry("500x400")
+        self.dialog.geometry("600x550")
         self.dialog.resizable(False, False)
         self.dialog.transient(self.parent)
         self.dialog.grab_set()
         
         # Center the dialog
         self.dialog.update_idletasks()
-        x = (self.dialog.winfo_screenwidth() // 2) - (500 // 2)
-        y = (self.dialog.winfo_screenheight() // 2) - (400 // 2)
+        x = (self.dialog.winfo_screenwidth() // 2) - (600 // 2)
+        y = (self.dialog.winfo_screenheight() // 2) - (550 // 2)
         self.dialog.geometry(f"+{x}+{y}")
         
         main_frame = ttk.Frame(self.dialog, padding=20)
@@ -121,44 +124,28 @@ class ProviderDlg:
         # Instructions
         instructions = ttk.Label(main_frame, 
                                 text="Choose which threat intelligence providers to query.\n"
-                                     "Always-on providers (AbuseIPDB, OTX, ThreatFox) are free and recommended.",
+                                     "Check 'Always On' to make a provider permanently enabled.",
                                 foreground='gray')
-        instructions.pack(anchor='w', pady=(0, 15))
+        instructions.pack(anchor='w', pady=(0, 10))
         
-        # Scrollable frame for providers
-        canvas = tk.Canvas(main_frame, height=200)
-        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas)
+        # Filter section
+        filter_frame = ttk.Frame(main_frame)
+        filter_frame.pack(fill='x', pady=(0, 15))
         
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
+        ttk.Label(filter_frame, text="Filter by IOC type:").pack(side='left')
+        self.filter_var = tk.StringVar(value="all")
+        filter_combo = ttk.Combobox(filter_frame, textvariable=self.filter_var, 
+                                   values=["all", "ip", "domain", "url", "hash"], 
+                                   state="readonly", width=10)
+        filter_combo.pack(side='left', padx=(10, 0))
+        filter_combo.bind('<<ComboboxSelected>>', self._on_filter_change)
         
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
+        # Create a frame for the provider list
+        self.list_frame = ttk.Frame(main_frame)
+        self.list_frame.pack(fill='both', expand=True, pady=(0, 15))
         
-        # Provider checkboxes
-        for provider, description in AVAILABLE_PROVIDERS.items():
-            var = tk.BooleanVar(value=config.get(provider, False))
-            self.vars[provider] = var
-            
-            frame = ttk.Frame(scrollable_frame)
-            frame.pack(fill='x', padx=5, pady=2)
-            
-            checkbox = ttk.Checkbutton(frame, text=f"{provider.upper()}", variable=var)
-            checkbox.pack(side='left')
-            
-            desc_label = ttk.Label(frame, text=f"- {description}", foreground='gray')
-            desc_label.pack(side='left', padx=(10, 0))
-            
-            # Mark always-on providers
-            if provider in ['abuseipdb', 'otx', 'threatfox', 'urlhaus', 'malwarebazaar']:
-                always_label = ttk.Label(frame, text="(Always On)", foreground='green', font=('Arial', 8))
-                always_label.pack(side='right')
-        
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        # Build provider widgets
+        self._build_provider_widgets(config)
         
         # Buttons
         button_frame = ttk.Frame(main_frame)
@@ -178,27 +165,81 @@ class ProviderDlg:
         # Focus on OK button
         self.dialog.focus_set()
     
-    def _select_all(self):
-        """Select all providers."""
-        for var in self.vars.values():
-            var.set(True)
-    
-    def _select_none(self):
-        """Deselect all providers."""
-        for var in self.vars.values():
-            var.set(False)
-    
-    def _select_defaults(self):
-        """Select default providers (always-on + VirusTotal)."""
-        for provider, var in self.vars.items():
-            if provider in ['abuseipdb', 'otx', 'threatfox', 'urlhaus', 'malwarebazaar', 'virustotal']:
-                var.set(True)
+    def _build_provider_widgets(self, config):
+        """Build the provider widgets."""
+        # Clear existing widgets
+        for widget in self.list_frame.winfo_children():
+            widget.destroy()
+        
+        # Get provider compatibility info
+        from providers import ALWAYS_ON, RATE_LIMIT
+        all_providers = list(ALWAYS_ON) + list(RATE_LIMIT)
+        provider_capabilities = {p.name: p.ioc_kinds for p in all_providers}
+        
+        # Filter providers based on selected IOC type
+        selected_ioc_type = self.filter_var.get()
+        
+        for i, (provider, description) in enumerate(AVAILABLE_PROVIDERS.items()):
+            # Check if provider should be shown based on filter
+            if selected_ioc_type != "all":
+                provider_ioc_kinds = provider_capabilities.get(provider, ())
+                if selected_ioc_type not in provider_ioc_kinds:
+                    continue
+            
+            # Create or get existing variable
+            if provider not in self.vars:
+                var = tk.BooleanVar(value=config.get(provider, False))
+                self.vars[provider] = var
             else:
-                var.set(False)
+                var = self.vars[provider]
+            
+            # Main provider frame
+            provider_frame = ttk.Frame(self.list_frame)
+            provider_frame.pack(fill='x', pady=3)
+            
+            # Checkbox
+            checkbox = ttk.Checkbutton(provider_frame, text=provider.upper(), 
+                                     variable=var, width=15)
+            checkbox.pack(side='left', anchor='w')
+            
+            # Description with IOC types
+            ioc_types = provider_capabilities.get(provider, ())
+            desc_with_types = f"{description} - Supports: {', '.join(ioc_types)}"
+            desc_label = ttk.Label(provider_frame, text=desc_with_types, 
+                                 foreground='gray', width=45)
+            desc_label.pack(side='left', padx=(10, 0), anchor='w')
+            
+            # Always On checkbox
+            always_on_attr = f"{provider}_always_on"
+            if not hasattr(self, always_on_attr):
+                always_on_var = tk.BooleanVar(value=provider in DEFAULT_ALWAYS_ON)
+                setattr(self, always_on_attr, always_on_var)
+            else:
+                always_on_var = getattr(self, always_on_attr)
+            
+            always_on_cb = ttk.Checkbutton(provider_frame, text="Always On", 
+                                         variable=always_on_var, width=12)
+            always_on_cb.pack(side='right', anchor='e')
+    
+    def _on_filter_change(self, event=None):
+        """Handle filter dropdown change."""
+        config = {provider: var.get() for provider, var in self.vars.items()}
+        self._build_provider_widgets(config)
     
     def ok(self):
-        """Accept the provider selection."""
+        """Accept the provider selection and update always-on list."""
+        # Update the provider selection
         self.result = {provider: var.get() for provider, var in self.vars.items()}
+        
+        # Update always-on providers based on user selection
+        global DEFAULT_ALWAYS_ON
+        new_always_on = []
+        for provider in AVAILABLE_PROVIDERS.keys():
+            always_on_var = getattr(self, f"{provider}_always_on", None)
+            if always_on_var and always_on_var.get():
+                new_always_on.append(provider)
+        
+        DEFAULT_ALWAYS_ON = new_always_on
         self.dialog.destroy()
     
     def _cancel(self):
@@ -296,10 +337,10 @@ class IOCCheckerGUI:
         self.no_virustotal = tk.BooleanVar(value=False)
         self.stats = {'threat': 0, 'clean': 0, 'error': 0, 'total': 0}
         
-        # Provider configuration
+        # Provider configuration - only OTX and AbuseIPDB enabled by default
         self.provider_config = {
-            'abuseipdb': True, 'otx': True, 'threatfox': True, 'urlhaus': True, 'malwarebazaar': True,
-            'virustotal': True, 'greynoise': False, 'pulsedive': False, 'shodan': False
+            'abuseipdb': True, 'otx': True, 'threatfox': False, 'urlhaus': False, 'malwarebazaar': False,
+            'virustotal': False, 'greynoise': False, 'pulsedive': False, 'shodan': False
         }
         
         # Progress tracking
@@ -457,17 +498,22 @@ class IOCCheckerGUI:
                 self._log("info", "Proxy disabled")
 
     def _build_provider_args(self):
-        """Build provider arguments for command line."""
-        args = []
-        
-        # Add enabled providers
+        """Build provider arguments for command line based on user selection."""
+        # Get list of all selected providers
+        selected_providers = []
         for provider, enabled in self.provider_config.items():
-            if enabled and provider not in ['abuseipdb', 'otx', 'threatfox', 'urlhaus', 'malwarebazaar']:
-                args.append(f"--{provider}")
+            if enabled:
+                selected_providers.append(provider)
+        
+        # Log which providers are being used for debugging
+        self._log("info", f"Selected providers: {', '.join(selected_providers)}")
+        
+        # Use the new --providers argument to pass exact list
+        args = ["--providers", ",".join(selected_providers)]
         
         # Add rate limiting if any rate-limited providers are enabled
         rate_limited_providers = ['virustotal', 'greynoise', 'pulsedive', 'shodan']
-        if any(self.provider_config.get(p, False) for p in rate_limited_providers):
+        if any(provider in selected_providers for provider in rate_limited_providers):
             args.append("--rate")
         
         return args
@@ -609,12 +655,21 @@ class IOCCheckerGUI:
         
         self._log("info", f"=== Batch {p} ===")
         
-        # Use format-agnostic approach with file flag
-        cmd = [PYTHON, SCRIPT, "--file", p]
+        # Generate output filename based on input file location
+        input_path = Path(p)
+        output_filename = input_path.stem + "_results.csv"
+        output_path = input_path.parent / output_filename
+        
+        # Use format-agnostic approach with file flag and specify output
+        cmd = [PYTHON, SCRIPT, "--file", p, "-o", str(output_path)]
         
         # Add provider arguments based on user selection
         provider_args = self._build_provider_args()
         cmd.extend(provider_args)
+        
+        # Log the command and output path for debugging
+        self._log("info", f"Command: {' '.join(cmd)}")
+        self._log("info", f"Output will be saved to: {output_path}")
         
         self.processed_iocs = 0
         self.total_iocs = 0

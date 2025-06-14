@@ -95,12 +95,9 @@ def _fmt(raw: str | Dict[str, Any]) -> str:
 async def _query(session: aiohttp.ClientSession, typ: str, val: str, rate: bool, selected_providers: list = None) -> Dict[str, str]:
     """Query available providers for an IOC."""
     if selected_providers:
-        # Fix: Merge default always-on providers with user selections
+        # Use only the specifically selected providers
         all_providers = list(ALWAYS_ON) + list(RATE_LIMIT)
-        # Get always-on providers + specifically selected providers
-        always_on_names = [p.name for p in ALWAYS_ON]
-        combined_names = always_on_names + selected_providers
-        provs = [p for p in all_providers if p.name in combined_names]
+        provs = [p for p in all_providers if p.name in selected_providers]
     else:
         # Default behavior: always-on + rate-limited if enabled
         provs = list(ALWAYS_ON) + (list(RATE_LIMIT) if rate else [])
@@ -227,22 +224,31 @@ def main() -> None:
     ap.add_argument("--pulsedive", action="store_true", help="Use Pulsedive")
     ap.add_argument("--shodan", action="store_true", help="Use Shodan")
     
+    # Allow explicit provider list from GUI
+    ap.add_argument("--providers", help="Comma-separated list of providers to use")
+    
     a = ap.parse_args()
     
     # Build selected providers list
     selected_providers = []
-    if a.virustotal:
-        selected_providers.append("virustotal")
-    if a.greynoise:
-        selected_providers.append("greynoise")  
-    if a.pulsedive:
-        selected_providers.append("pulsedive")
-    if a.shodan:
-        selected_providers.append("shodan")
+    
+    # Check if providers were specified explicitly (from GUI)
+    if a.providers:
+        selected_providers = [p.strip() for p in a.providers.split(',')]
+    else:
+        # Build from individual flags
+        if a.virustotal:
+            selected_providers.append("virustotal")
+        if a.greynoise:
+            selected_providers.append("greynoise")  
+        if a.pulsedive:
+            selected_providers.append("pulsedive")
+        if a.shodan:
+            selected_providers.append("shodan")
         
-    # If no specific providers selected, use the rate flag behavior
-    if not selected_providers:
-        selected_providers = None
+        # If no specific providers selected, use default behavior
+        if not selected_providers:
+            selected_providers = None
 
     if a.ioc_type and a.value:
         async def _run_single():

@@ -10,7 +10,8 @@ _RE_DOMAIN  = re.compile(r"^(?=.{4,253}$)[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-
                          r"(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\.[A-Za-z]{2,}$")
 _RE_HASH    = re.compile(r"^(?:[A-Fa-f0-9]{32}|[A-Fa-f0-9]{40}|[A-Fa-f0-9]{64})$")
 _RE_EMAIL   = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-_RE_FILE    = re.compile(r"[A-Za-z]:\\|/")
+# More specific file path regex that matches actual file paths
+_RE_FILE    = re.compile(r"^(?:[A-Za-z]:\\[^<>:\"|?*\n]+|\.{0,2}/[^<>:\"|?*\n]+|[^/\\:]+\.[a-zA-Z0-9]{1,10})$")
 _RE_REG     = re.compile(r"^HK[LMCU]")
 _RE_WALLET  = re.compile(r"^0x[a-fA-F0-9]{40}$")
 _RE_ASN     = re.compile(r"^AS\d+$")
@@ -34,7 +35,19 @@ def _valid_url(v:str)->bool:
     return p.scheme in ("http","https","ftp","ftps") and bool(p.netloc)
 def _valid_hash(v:str)->bool:     return bool(_RE_HASH.fullmatch(v))
 def _valid_email(v:str)->bool:    return bool(_RE_EMAIL.fullmatch(v))
-def _valid_file(v:str)->bool:     return bool(_RE_FILE.search(v))
+def _valid_file(v:str)->bool:     
+    v_stripped = v.strip()
+    
+    # Exclude common date/time formats that contain slashes
+    if re.match(r'^\d{1,2}/\d{1,2}/\d{2,4}(\s+\d{1,2}:\d{2}(:\d{2})?(\s*[AaPp][Mm])?)?$', v_stripped):
+        return False
+    if re.match(r'^\d{4}-\d{2}-\d{2}(\s+\d{1,2}:\d{2}(:\d{2})?)?$', v_stripped):
+        return False
+    if re.match(r'^\d{1,2}:\d{2}(:\d{2})?(\s*[AaPp][Mm])?$', v_stripped):
+        return False
+    
+    # Check if it matches file path pattern
+    return bool(_RE_FILE.fullmatch(v_stripped))
 def _valid_reg(v:str)->bool:      return bool(_RE_REG.match(v))
 def _valid_wallet(v:str)->bool:   return bool(_RE_WALLET.fullmatch(v))
 def _valid_asn(v:str)->bool:

@@ -95,6 +95,18 @@ def _parse_response(raw_response: str, provider_name: str) -> Dict[str, Any]:
             except (KeyError, TypeError):
                 return {"status": "n/a", "score": 0, "raw": data}
         
+        # MalwareBazaar parsing
+        elif provider_name == "malwarebazaar":
+            try:
+                if data.get("query_status") == "ok" and data.get("data"):
+                    return {"status": "malicious", "score": 85, "raw": data}
+                elif data.get("query_status") == "no_result":
+                    return {"status": "clean", "score": 0, "raw": data}
+                else:
+                    return {"status": "n/a", "score": 0, "raw": data}
+            except (KeyError, TypeError):
+                return {"status": "n/a", "score": 0, "raw": data}
+        
         # Default fallback
         return {"status": "clean", "score": 0, "raw": data}
         
