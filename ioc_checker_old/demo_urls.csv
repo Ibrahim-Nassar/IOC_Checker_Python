@@ -1,0 +1,4 @@
+DateAdded,MalwareURL,Source
+2025-06-11,http://malicious-example.com/malware.exe,Test
+2025-06-11,https://clean-example.com/safe.html,Test
+2025-06-11,http://suspicious-domain.net/payload.bin,Test

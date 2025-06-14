@@ -1,0 +1,4 @@
+ioc_type,ioc_value,timestamp,abuseipdb_result,abuseipdb_threat,virustotal_result,virustotal_threat,otx_result,otx_threat,threatfox_result,threatfox_threat,urlhaus_result,urlhaus_threat,malwarebazaar_result,malwarebazaar_threat,overall_threat_detected,error
+url,http://malicious-example.com/malware.exe,2025-06-11T10:43:25.319968Z,N/A,False,❌ 404 Not Found,False,❌ 404 NOT FOUND,False,✅ Not found in ThreatFox (recent threats only),False,✅ Not found in URLhaus,False,N/A,False,False,
+url,https://clean-example.com/safe.html,2025-06-11T10:43:26.277437Z,N/A,False,❌ 404 Not Found,False,❌ 404 NOT FOUND,False,✅ Not found in ThreatFox (recent threats only),False,✅ Not found in URLhaus,False,N/A,False,False,
+url,http://suspicious-domain.net/payload.bin,2025-06-11T10:43:26.933230Z,N/A,False,❌ 404 Not Found,False,❌ 404 NOT FOUND,False,✅ Not found in ThreatFox (recent threats only),False,✅ Not found in URLhaus,False,N/A,False,False,

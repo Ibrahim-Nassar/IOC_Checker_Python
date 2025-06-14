@@ -1,0 +1,6 @@
+ioc_type,ioc_value,description
+ip,8.8.8.8,Example IP address
+ip,192.168.1.1:8080,Example IP with port
+domain,example.com,Example domain
+url,https://example.com,Example URL
+hash,d41d8cd98f00b204e9800998ecf8427e,Example MD5 hash

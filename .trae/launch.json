@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run IOC GUI",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/ioc_gui_tk.py",
+      "console": "integratedTerminal",
+      "python": "${workspaceFolder}/venv/Scripts/python.exe"
+    }
+  ]
+}
