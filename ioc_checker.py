@@ -136,7 +136,11 @@ async def process_csv(csv_path: str, out: str, rate: bool, selected_providers: l
     if not inpath.exists():
         log.error(f"Input file not found: {csv_path}")
         return
-      # Detect CSV delimiter
+        
+    # Add debug logging for GUI
+    log.debug(f"CSV selected: {csv_path}")
+    
+    # Detect CSV delimiter
     try:
         with inpath.open("rb") as fh:
             sample = fh.read(8192).decode("utf-8", "ignore")
@@ -166,6 +170,10 @@ async def process_csv(csv_path: str, out: str, rate: bool, selected_providers: l
     if not rows:
         log.warning(f"No usable rows in {csv_path}")
         return
+    
+    # Add debug logging for parsed IOC count
+    ioc_count = sum(1 for row in rows for v in row.values() if v and v.strip())
+    log.debug(f"Parsed {ioc_count} IOCs from {len(rows)} rows")
     log.info(f"Loaded {len(rows)} rows from {csv_path} (delimiter={repr(delim)})")
 
     # Process IOCs
@@ -182,10 +190,24 @@ async def process_csv(csv_path: str, out: str, rate: bool, selected_providers: l
                 for col_name, v in row.items():
                     if v and v.strip():
                         try:
+                            # Add progress output for GUI
+                            print(f"Processing IOC: {v.strip()}")
                             result = await scan_single(sess, v.strip(), rate, selected_providers)
                             results.append(result)
+                            
+                            # Add debug logging and console output for each result
+                            log.debug(f"Result row added: {v.strip()}")
+                            
+                            # Format result for display like single IOC mode
+                            print(f"Result: {result['value']} ({result['type']})")
+                            for provider, raw_result in result['results'].items():
+                                formatted = _fmt(raw_result)
+                                print(f"  {provider}: {formatted}")
+                            print()  # Empty line for readability
+                            
                         except Exception as e:
                             log.error(f"Failed to scan IOC '{v}': {e}")
+                            print(f"Error processing {v.strip()}: {e}")
                             results.append({
                                 "value": v.strip(),
                                 "type": "error",
@@ -193,6 +215,7 @@ async def process_csv(csv_path: str, out: str, rate: bool, selected_providers: l
                             })
                 if idx % 50 == 0:
                     log.info(f"Processed {idx}/{len(rows)} rows")
+                    print(f"Progress: Processed {idx}/{len(rows)} rows")
     except Exception as e:
         log.error(f"Session error during CSV processing: {e}")
         return
@@ -204,8 +227,10 @@ async def process_csv(csv_path: str, out: str, rate: bool, selected_providers: l
         WRITERS["xlsx"](outpath.with_suffix(".xlsx"), results)
         WRITERS["html"](outpath.with_suffix(".html"), results)
         log.info(f"Reports written → {outpath}*")
+        print(f"CSV processing complete! Reports saved to {outpath}*")
     except Exception as e:
         log.error(f"Failed to write reports: {e}")
+        print(f"Error writing reports: {e}")
 
 # ────────── CLI entry point ──────────
 def main() -> None:

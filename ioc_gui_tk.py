@@ -203,6 +203,9 @@ class App(tk.Tk):
             messagebox.showerror("File", "File not found")
             return
         
+        # Add debug logging for GUI
+        log.debug(f"CSV selected: {p}")
+        
         # Fix: Enhanced CSV command with progress output and provider merging
         input_path = Path(p)
         output_file = str(input_path.with_name(input_path.stem + "_results.csv"))
@@ -221,10 +224,12 @@ class App(tk.Tk):
         self.out.config(state=tk.NORMAL)
         self.out.insert(tk.END, f"Starting CSV processing: {p}\n")
         self.out.insert(tk.END, f"Output will be saved to: {output_file}\n")
+        self.out.insert(tk.END, f"Command: {' '.join(cmd)}\n")  # Debug: show actual command
         self.out.insert(tk.END, "-" * 50 + "\n")
         self.out.see(tk.END)
         self.out.config(state=tk.DISABLED)
         
+        log.debug(f"Starting subprocess with command: {' '.join(cmd)}")
         self._start(cmd)
 
     def _start(self, cmd: list) -> None:
@@ -242,13 +247,16 @@ class App(tk.Tk):
             env = os.environ.copy()
             env['PYTHONIOENCODING'] = 'utf-8'
             
+            # Fix: Add unbuffered output for real-time display
             self.proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 encoding='utf-8',
-                env=env
+                env=env,
+                bufsize=1,  # Line buffered for real-time output
+                universal_newlines=True
             )
             log.info(f"Started subprocess: {' '.join(cmd)}")
         except Exception as e:
@@ -261,19 +269,45 @@ class App(tk.Tk):
             try:
                 # Read available lines without blocking
                 lines_read = 0
-                while lines_read < 10:  # Limit lines per poll to prevent UI blocking
+                while lines_read < 20:  # Increased limit for better responsiveness
                     line = self.proc.stdout.readline()
                     if not line:
                         break
                     lines_read += 1
+                    
+                    # Debug logging for each line
+                    log.debug(f"Subprocess output: {repr(line)}")
+                    
+                    # Display line in output widget
                     self.out.config(state=tk.NORMAL)
                     self.out.insert(tk.END, line)
                     self.out.see(tk.END)
                     self.out.config(state=tk.DISABLED)
+                    
+                    # Force GUI update for immediate display
+                    self.update_idletasks()
                 
+                # Check if process finished
                 if self.proc.poll() is not None:
+                    # Read any remaining output
+                    remaining = self.proc.stdout.read()
+                    if remaining:
+                        log.debug(f"Final subprocess output: {repr(remaining)}")
+                        self.out.config(state=tk.NORMAL)
+                        self.out.insert(tk.END, remaining)
+                        self.out.see(tk.END)
+                        self.out.config(state=tk.DISABLED)
+                    
                     self.proc = None
                     log.info("Subprocess completed")
+                    
+                    # Add completion message
+                    self.out.config(state=tk.NORMAL)
+                    self.out.insert(tk.END, "\n" + "="*50 + "\n")
+                    self.out.insert(tk.END, "CSV processing completed!\n")
+                    self.out.see(tk.END)
+                    self.out.config(state=tk.DISABLED)
+                    
             except Exception as e:
                 log.error(f"Error polling subprocess: {e}")
                 self.proc = None
