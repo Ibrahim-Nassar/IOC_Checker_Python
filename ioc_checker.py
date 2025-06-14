@@ -11,6 +11,7 @@ from typing import Dict, Any
 from ioc_types import detect_ioc_type
 from providers import ALWAYS_ON, RATE_LIMIT
 from reports   import WRITERS
+from loader import load_iocs
 
 # Ensure UTF-8 output on all platforms
 try:
@@ -128,53 +129,29 @@ async def scan_single(session: aiohttp.ClientSession, val: str, rate: bool, sele
     return {"value": norm, "type": typ,
             "results": await _query(session, typ, norm, rate, selected_providers)}
 
-# ────────── robust CSV processing ──────────
-async def process_csv(csv_path: str, out: str, rate: bool, selected_providers: list = None) -> None:
-    """Process CSV file with robust parsing and error handling."""
-    inpath, outpath = pathlib.Path(csv_path), pathlib.Path(out)
+# ────────── format-agnostic file processing ──────────
+async def process_file(file_path: str, out: str, rate: bool, selected_providers: list = None) -> None:
+    """Process any supported file format with format-agnostic IOC discovery."""
+    inpath, outpath = pathlib.Path(file_path), pathlib.Path(out)
     
-    if not inpath.exists():
-        log.error(f"Input file not found: {csv_path}")
-        return
+    try:
+        # Load IOCs using format-agnostic loader
+        print(f"Loading IOCs from {file_path}...")
+        iocs = load_iocs(inpath)
         
-    # Add debug logging for GUI
-    log.debug(f"CSV selected: {csv_path}")
-    
-    # Detect CSV delimiter
-    try:
-        with inpath.open("rb") as fh:
-            sample = fh.read(8192).decode("utf-8", "ignore")
-            # Handle empty files
-            if not sample.strip():
-                log.warning(f"Empty file: {csv_path}")
-                return
-            delim = csv.Sniffer().sniff(sample).delimiter
-    except Exception as e:
-        log.warning(f"Could not detect delimiter, using comma: {e}")
-        delim = ","
-
-    # Read and filter CSV rows
-    try:
-        with inpath.open(encoding="utf-8", errors="ignore") as fh:
-            rdr = csv.DictReader(fh, delimiter=delim)
-            rows = []
-            for row_num, row in enumerate(rdr, 1):
-                if any(c.strip() for c in row.values() if c):
-                    rows.append(row)
-                elif row_num <= 10:  # Only log first few empty rows
-                    log.debug(f"Skipping empty row {row_num}")
-    except Exception as e:
-        log.error(f"Failed to read CSV file: {e}")
+        print(f"Found {len(iocs)} IOCs to process:")
+        type_counts = {}
+        for ioc in iocs:
+            ioc_type = ioc['type']
+            type_counts[ioc_type] = type_counts.get(ioc_type, 0) + 1
+        
+        for ioc_type, count in type_counts.items():
+            print(f"  {ioc_type}: {count}")
+        
+    except (FileNotFoundError, ValueError) as e:
+        log.error(f"Failed to load IOCs: {e}")
+        print(f"Error: {e}")
         return
-
-    if not rows:
-        log.warning(f"No usable rows in {csv_path}")
-        return
-    
-    # Add debug logging for parsed IOC count
-    ioc_count = sum(1 for row in rows for v in row.values() if v and v.strip())
-    log.debug(f"Parsed {ioc_count} IOCs from {len(rows)} rows")
-    log.info(f"Loaded {len(rows)} rows from {csv_path} (delimiter={repr(delim)})")
 
     # Process IOCs
     results = []
@@ -186,49 +163,47 @@ async def process_csv(csv_path: str, out: str, rate: bool, selected_providers: l
     
     try:
         async with aiohttp.ClientSession(connector=conn) as sess:
-            for idx, row in enumerate(rows, 1):
-                for col_name, v in row.items():
-                    if v and v.strip():
-                        try:
-                            # Add progress output for GUI
-                            print(f"Processing IOC: {v.strip()}")
-                            result = await scan_single(sess, v.strip(), rate, selected_providers)
-                            results.append(result)
-                            
-                            # Add debug logging and console output for each result
-                            log.debug(f"Result row added: {v.strip()}")
-                            
-                            # Format result for display with clean status
-                            print(f"Result: {result['value']} ({result['type']})")
-                            for provider, provider_data in result['results'].items():
-                                if isinstance(provider_data, dict) and "status" in provider_data:
-                                    status = provider_data["status"]
-                                    print(f"  {provider}: {status}")
-                                else:
-                                    # Handle legacy string responses during transition
-                                    print(f"  {provider}: {provider_data}")
-                            print()  # Empty line for readability
-                            
-                        except Exception as e:
-                            log.error(f"Failed to scan IOC '{v}': {e}")
-                            print(f"Error processing {v.strip()}: {e}")
-                            results.append({
-                                "value": v.strip(),
-                                "type": "error",
-                                "results": {"error": str(e)}
-                            })
+            for idx, ioc_data in enumerate(iocs, 1):
+                try:
+                    # Add progress output for GUI
+                    print(f"Processing IOC: {ioc_data['value']}")
+                    result = await scan_single(sess, ioc_data['value'], rate, selected_providers)
+                    results.append(result)
+                    
+                    # Add debug logging and console output for each result
+                    log.debug(f"Result row added: {ioc_data['value']}")
+                    
+                    # Format result for display with clean status
+                    print(f"Result: {result['value']} ({result['type']})")
+                    for provider, provider_data in result['results'].items():
+                        if isinstance(provider_data, dict) and "status" in provider_data:
+                            status = provider_data["status"]
+                            print(f"  {provider}: {status}")
+                        else:
+                            # Handle legacy string responses during transition
+                            print(f"  {provider}: {provider_data}")
+                    print()  # Empty line for readability
+                    
+                except Exception as e:
+                    log.error(f"Failed to scan IOC '{ioc_data['value']}': {e}")
+                    print(f"Error processing {ioc_data['value']}: {e}")
+                    results.append({
+                        "value": ioc_data['value'],
+                        "type": "error",
+                        "results": {"error": str(e)}
+                    })
                 if idx % 50 == 0:
-                    log.info(f"Processed {idx}/{len(rows)} rows")
-                    print(f"Progress: Processed {idx}/{len(rows)} rows")
+                    log.info(f"Processed {idx}/{len(iocs)} IOCs")
+                    print(f"Progress: Processed {idx}/{len(iocs)} IOCs")
     except Exception as e:
-        log.error(f"Session error during CSV processing: {e}")
+        log.error(f"Session error during file processing: {e}")
         return
 
     # Write only CSV report
     try:
         WRITERS["csv"](outpath, results)
         log.info(f"Clean CSV report written → {outpath}")
-        print(f"CSV processing complete! Clean report saved to {outpath}")
+        print(f"File processing complete! Clean report saved to {outpath}")
     except Exception as e:
         log.error(f"Failed to write CSV report: {e}")
         print(f"Error writing CSV report: {e}")
@@ -241,8 +216,9 @@ def main() -> None:
         choices=["ip","domain","url","hash","email","filepath","registry","wallet","asn","attack"],
         help="IOC type for single lookup")
     ap.add_argument("value", nargs="?", help="IOC value for single lookup")
-    ap.add_argument("--csv", help="Batch CSV/TXT path")
-    ap.add_argument("-o", "--out", default="results.csv", help="Output filename (batch)")
+    ap.add_argument("--file", help="Input file path (CSV, TSV, XLSX, TXT)")
+    ap.add_argument("--csv", help="Legacy CSV path (deprecated, use --file)")
+    ap.add_argument("-o", "--out", default="results.csv", help="Output filename")
     ap.add_argument("--rate", action="store_true", help="Include rate-limited providers")
     
     # Individual provider selection
@@ -291,16 +267,18 @@ def main() -> None:
             log.error(f"Async runtime error: {e}")
         return
 
-    if a.csv:
+    # Handle file input (new format-agnostic or legacy CSV)
+    input_file = a.file or a.csv
+    if input_file:
         try:
-            asyncio.run(process_csv(a.csv, a.out, a.rate, selected_providers))
+            asyncio.run(process_file(input_file, a.out, a.rate, selected_providers))
         except KeyboardInterrupt:
-            log.info("CSV processing interrupted by user")
+            log.info("File processing interrupted by user")
         except Exception as e:
-            log.error(f"CSV processing failed: {e}")
+            log.error(f"File processing failed: {e}")
         return
 
-    ap.error("Provide either (ioc_type value) or --csv")
+    ap.error("Provide either (ioc_type value) or --file/--csv")
 
 if __name__ == "__main__":
     main()

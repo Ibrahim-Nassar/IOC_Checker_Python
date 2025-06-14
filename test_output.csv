@@ -1,3 +1,2 @@
 ioc,ioc_type,vt_status,otx_status,abuseipdb_status,threatfox_status,urlhaus_status,overall
 127.0.0.1,ip,n/a,n/a,clean,clean,n/a,LOW
-example.com,domain,n/a,malicious,n/a,clean,n/a,HIGH

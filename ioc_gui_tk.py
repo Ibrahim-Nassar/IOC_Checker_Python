@@ -1,322 +1,425 @@
 """
-Tkinter GUI with robust subprocess handling and UTF-8 support.
-• Single IOC lookup  • Batch CSV/TXT
-• Outlined buttons  • Clear output button
-• Auto-clear toggle  • Enter ↵ triggers Check
-• Cross-platform UTF-8 handling
+Tkinter GUI for IOC checking with format-agnostic input and live progress bar.
+• Drag & Drop • Format detection • Real-time progress • Subprocess integration
 """
-from __future__ import annotations
-import subprocess, sys, os, tkinter as tk, logging
-from tkinter import ttk, filedialog, messagebox, font
+import tkinter as tk
+from tkinter import ttk, scrolledtext, filedialog, messagebox
+import subprocess
+import sys
+import threading
+import queue
+import os
+import re
+import logging
 from pathlib import Path
-from typing import Optional
+from loader import load_iocs
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("ioc_gui")
+log = logging.getLogger("gui")
 
-SCRIPT, PY = "ioc_checker.py", sys.executable
-IOC_TYPES = ("ip", "domain", "url", "hash", "email", "filepath", "registry", "wallet", "asn", "attack")
+SCRIPT = "ioc_checker.py"
+PYTHON = sys.executable
+IOC_TYPES = ("ip", "domain", "url", "hash")
+COLORS = {
+    'threat': '#FF4444',
+    'clean':  '#00AA00',
+    'warning':'#FF8800',
+    'error':  '#CC0000',
+    'info':   '#0066CC',
+    'default':'#000000'
+}
 
-# ────────── theme ──────────
-def theme(root: tk.Tk) -> None:
-    """Apply modern theme to the GUI."""
-    try:
-        ttk.Style().theme_use("clam")
-        f = font.nametofont("TkDefaultFont")
-        f.configure(family="Segoe UI", size=10)
-        root.option_add("*Font", f)
-        s = ttk.Style()
-        s.configure(".", padding=2, borderwidth=0, relief="flat")
-        s.configure("Outline.TButton", padding=(10, 4), borderwidth=1, relief="ridge")
-    except Exception as e:
-        log.warning(f"Theme setup failed: {e}")
+def _classify(line: str) -> str:
+    if ("🚨" in line or 
+        re.search(r"(Malicious|Suspicious):[1-9]", line) or 
+        "Found in" in line):
+        return "threat"
+    if any(t in line for t in ("✅", "Clean", "Not found", "Whitelisted")):
+        return "clean"
+    if any(t in line for t in ("⚠️", "Suspicious", "Medium")):
+        return "warning"
+    if "❌" in line or "ERROR" in line:
+        return "error"
+    if "ℹ️" in line or "INFO" in line:
+        return "info"
+    return "default"
 
-# ────────── dialogs ──────────
-class ProviderDlg(tk.Toplevel):
-    """Provider configuration dialog."""
-    def __init__(self, master: tk.Tk, cfg: dict):
-        super().__init__(master)
-        self.title("Providers")
-        self.grab_set()
-        self.result = None
-        self.vars = {k: tk.BooleanVar(value=v) for k, v in cfg.items()}
-        for i, (k, v) in enumerate(self.vars.items()):
-            ttk.Checkbutton(self, text=k, variable=v).grid(row=i, column=0, sticky="w")
-        ttk.Button(self, text="OK", command=self.ok, style="Outline.TButton").grid(
-            row=len(self.vars), column=0, pady=6
-        )
+def _should_show(line: str, only: bool) -> bool:
+    """Return True if the line should appear given the 'only threats' setting."""
+    if not only:
+        return True
 
-    def ok(self) -> None:
-        """Save configuration and close dialog."""
-        self.result = {k: v.get() for k, v in self.vars.items()}
-        self.destroy()
+    # Always keep high-level progress / errors
+    if any(k in line.lower() for k in ("starting", "completed", "error")):
+        return True
 
-class ProxyDlg(tk.Toplevel):
-    """Proxy configuration dialog."""
-    def __init__(self, master: tk.Tk):
-        super().__init__(master)
-        self.title("Proxy")
-        self.grab_set()
-        self.var = tk.StringVar(value=os.environ.get("https_proxy", ""))
-        ttk.Entry(self, textvariable=self.var, width=40).grid(row=0, column=0, padx=6, pady=6)
-        ttk.Button(self, text="OK", command=self.ok, style="Outline.TButton").grid(
-            row=1, column=0, pady=(0, 6)
-        )
+    # Explicit threat markers
+    if ("🚨" in line or 
+        "⚠️" in line or 
+        "Found in" in line):
+        return True
 
-    def ok(self) -> None:
-        """Save proxy settings and close dialog."""
-        p = self.var.get().strip()
-        if p:
-            os.environ["http_proxy"] = os.environ["https_proxy"] = p
-        else:
-            os.environ.pop("http_proxy", None)
-            os.environ.pop("https_proxy", None)
-        self.destroy()
+    # Malicious / Suspicious counts > 0
+    if re.search(r"(Malicious|Suspicious):[1-9]", line):
+        return True
 
-# ────────── main app ──────────
-class App(tk.Tk):
-    """Main application window."""
+    return False
+
+class IOCCheckerGUI:
     def __init__(self):
-        super().__init__()
-        theme(self)
-        self.title("IOC Checker")
-        self.cfg = {"virustotal": False, "greynoise": False, "pulsedive": False, "shodan": False}
-        self.auto_clear = tk.BooleanVar(value=True)
-        self.proc: Optional[subprocess.Popen] = None
-        self._build()
-        self.after(100, self._poll)
+        self.root = tk.Tk()
+        self.root.title("IOC Checker - Format Agnostic")
+        self.root.geometry("1000x700")
+        self.q = queue.Queue()
+        self.running = False
+        self.show_only = tk.BooleanVar(value=True)
+        self.no_virustotal = tk.BooleanVar(value=False)
+        self.stats = {'threat': 0, 'clean': 0, 'error': 0, 'total': 0}
+        
+        # Progress tracking
+        self.total_iocs = 0
+        self.processed_iocs = 0
+        
+        self._build_ui()
+        self._poll()
 
-    def _build(self) -> None:
-        """Build the GUI layout."""
-        frm = ttk.Frame(self, padding=10)
-        frm.pack(fill="both", expand=True)
+    def _build_ui(self):
+        s = ttk.Style()
+        s.configure('Act.TButton', padding=(10, 4))
+        s.configure('Bad.TButton', foreground='red')
+        
+        main = ttk.Frame(self.root, padding=15)
+        main.grid(sticky="nsew")
+        self.root.rowconfigure(0, weight=1)
+        self.root.columnconfigure(0, weight=1)
+        
+        title_label = ttk.Label(main, text="IOC Threat Intelligence Checker", 
+                               font=('Arial', 16, 'bold'))
+        title_label.grid(row=0, column=0, sticky="w")
+        
+        inp = ttk.Frame(main)
+        inp.grid(row=1, column=0, sticky="ew", pady=10)
+        main.columnconfigure(0, weight=1)
+        
+        ttk.Label(inp, text="Type").grid(row=0, column=0)
+        self.type_cb = ttk.Combobox(inp, values=IOC_TYPES, state="readonly", width=10)
+        self.type_cb.current(0)
+        self.type_cb.grid(row=0, column=1, padx=5)
+        
+        ttk.Label(inp, text="Value").grid(row=0, column=2)
+        self.val = tk.Entry(inp, width=50)
+        self.val.grid(row=0, column=3, sticky="ew", padx=5)
+        inp.columnconfigure(3, weight=1)
+        
+        btnf = ttk.Frame(inp)
+        btnf.grid(row=0, column=4, padx=5)
+        self.btn_check = ttk.Button(btnf, text="Check", style='Act.TButton', 
+                                   command=self._start_single)
+        self.btn_check.pack(side=tk.LEFT)
+        ttk.Button(btnf, text="Clear", command=self._clear).pack(side=tk.LEFT, padx=5)
+        
+        batch = ttk.Frame(main)
+        batch.grid(row=2, column=0, sticky="ew", pady=5)
+        self.file_var = tk.StringVar()
+        
+        ttk.Label(batch, text="File:").grid(row=0, column=0)
+        file_entry = ttk.Entry(batch, textvariable=self.file_var, width=50)
+        file_entry.grid(row=0, column=1, sticky="ew", padx=5)
+        batch.columnconfigure(1, weight=1)
+        
+        ttk.Button(batch, text="Browse", command=self._browse).grid(row=0, column=2)
+        self.btn_batch = ttk.Button(batch, text="Start Processing", style='Act.TButton', 
+                                   command=self._start_batch)
+        self.btn_batch.grid(row=0, column=3, padx=5)
+        
+        # Format info label
+        self.format_label = ttk.Label(batch, text="Supported: CSV, TSV, XLSX, TXT", foreground="gray")
+        self.format_label.grid(row=1, column=0, columnspan=4, sticky="w", pady=(5,0))
+        
+        # Progress bar (initially hidden)
+        self.progress_frame = ttk.Frame(main)
+        self.progress_frame.grid(row=3, column=0, sticky="ew", pady=(10,5))
+        self.progress_frame.columnconfigure(0, weight=1)
+        
+        self.progress_label = ttk.Label(self.progress_frame, text="")
+        self.progress_label.grid(row=0, column=0, sticky="w")
+        
+        self.progress = ttk.Progressbar(self.progress_frame, mode="indeterminate")
+        self.progress.grid(row=1, column=0, sticky="ew", pady=(5,0))
+        
+        # Initially hide progress
+        self.progress_frame.grid_remove()
+        
+        res = ttk.LabelFrame(main, text="Results")
+        res.grid(row=4, column=0, sticky="nsew")
+        main.rowconfigure(4, weight=1)
+        
+        self.out = scrolledtext.ScrolledText(res, font=('Consolas', 10), 
+                                           state=tk.DISABLED, wrap=tk.WORD)
+        self.out.pack(expand=True, fill='both')
+        
+        for t, c in COLORS.items():
+            self.out.tag_configure(t, foreground=c)
+        
+        st = ttk.Frame(main)
+        st.grid(row=5, column=0, sticky="ew")
+        
+        self.lab_stats = {k: ttk.Label(st, text=f"{k}:0") for k in self.stats}
+        for i, (k, l) in enumerate(self.lab_stats.items()):
+            l.grid(row=0, column=i, padx=8, sticky="w")
+        
+        checkbox = ttk.Checkbutton(st, text="Show only threats", variable=self.show_only)
+        checkbox.grid(row=0, column=5, padx=20)
+        
+        vt_checkbox = ttk.Checkbutton(st, text="Skip VirusTotal", variable=self.no_virustotal)
+        vt_checkbox.grid(row=0, column=6, padx=20)
+        
+        self.root.bind("<Return>", self._start_single)
+        
+        # Setup drag and drop
+        self._setup_drag_drop()
 
-        # Single lookup section
-        sf = ttk.LabelFrame(frm, text="Single IOC lookup")
-        sf.grid(row=0, column=0, sticky="ew")
-        ttk.Label(sf, text="Type").grid(row=0, column=0)
-        self.typ = ttk.Combobox(sf, values=IOC_TYPES, width=12, state="readonly")
-        self.typ.current(0)
-        self.typ.grid(row=0, column=1, padx=(4, 8))
-        ttk.Label(sf, text="Value").grid(row=0, column=2)
-        self.val = tk.StringVar()
-        ent = ttk.Entry(sf, textvariable=self.val, width=40)
-        ent.grid(row=0, column=3, sticky="ew")
-        ttk.Button(sf, text="Check", command=self.single, style="Outline.TButton").grid(
-            row=0, column=4, padx=(10, 0)
-        )
-        sf.columnconfigure(3, weight=1)
-        ent.bind("<Return>", lambda e: self.single())
-        self.bind("<Return>", lambda e: self.single())
+    def _setup_drag_drop(self):
+        """Setup drag and drop functionality."""
+        try:
+            from tkinterdnd2 import DND_FILES, TkinterDnD
+            # Convert existing window to TkinterDnD
+            self.root.drop_target_register(DND_FILES)
+            self.root.dnd_bind('<<Drop>>', self._on_drop)
+            log.info("Drag & drop enabled")
+        except ImportError:
+            log.info("Drag & drop not available (tkinterdnd2 not installed)")
+        except Exception as e:
+            log.warning(f"Drag & drop setup failed: {e}")
 
-        # Batch processing section
-        bf = ttk.LabelFrame(frm, text="Batch CSV/TXT processing")
-        bf.grid(row=1, column=0, sticky="ew", pady=(8, 0))
-        ttk.Label(bf, text="File").grid(row=0, column=0)
-        self.path = tk.StringVar()
-        ttk.Entry(bf, textvariable=self.path, width=40).grid(row=0, column=1, sticky="ew")
-        ttk.Button(bf, text="Browse", command=self.browse, style="Outline.TButton").grid(
-            row=0, column=2, padx=(5, 0)
-        )
-        ttk.Button(bf, text="Run", command=self.batch, style="Outline.TButton").grid(
-            row=0, column=3
-        )
-        bf.columnconfigure(1, weight=1)
+    def _on_drop(self, event):
+        """Handle file drop."""
+        try:
+            files = self.root.tk.splitlist(event.data)
+            if files:
+                file_path = files[0]
+                # Remove curly braces if present
+                if file_path.startswith('{') and file_path.endswith('}'):
+                    file_path = file_path[1:-1]
+                
+                self.file_var.set(file_path)
+                self._update_format_info(file_path)
+                self._validate_file(file_path)
+        except Exception as e:
+            log.error(f"Drop handling error: {e}")
 
-        # Control section
-        ctl = ttk.Frame(frm)
-        ctl.grid(row=2, column=0, sticky="w", pady=(8, 0))
-        ttk.Button(ctl, text="Providers", command=self.providers, style="Outline.TButton").pack(
-            side="left"
-        )
-        ttk.Button(ctl, text="Proxy", command=self.proxy, style="Outline.TButton").pack(
-            side="left", padx=(6, 0)
-        )
-        ttk.Button(ctl, text="Clear Output", command=self.clear, style="Outline.TButton").pack(
-            side="left", padx=(12, 0)
-        )
-        ttk.Checkbutton(ctl, text="Auto-clear on start", variable=self.auto_clear).pack(
-            side="left", padx=(12, 0)
-        )
+    def _update_format_info(self, file_path):
+        """Update format information label."""
+        try:
+            p = Path(file_path)
+            suffix = p.suffix.lower()
+            format_map = {
+                '.csv': 'CSV (Comma-separated)',
+                '.tsv': 'TSV (Tab-separated)', 
+                '.xlsx': 'Excel Spreadsheet',
+                '.txt': 'Plain Text'
+            }
+            format_text = format_map.get(suffix, f'Unknown format ({suffix})')
+            self.format_label.config(text=f"Detected: {format_text}")
+        except Exception:
+            self.format_label.config(text="Supported: CSV, TSV, XLSX, TXT")
 
-        # Output section
-        self.out = tk.Text(frm, height=25, state=tk.DISABLED)
-        self.out.grid(row=3, column=0, sticky="nsew", pady=(10, 0))
-        frm.rowconfigure(3, weight=1)
-        frm.columnconfigure(0, weight=1)
+    def _validate_file(self, file_path):
+        """Validate file and show preview of IOCs."""
+        try:
+            path = Path(file_path)
+            if not path.exists():
+                self.format_label.config(text="File not found", foreground="red")
+                return
+            
+            # Try to load a few IOCs for preview
+            threading.Thread(target=self._preview_file, args=(path,), daemon=True).start()
+            
+        except Exception as e:
+            self.format_label.config(text=f"Error: {e}", foreground="red")
 
-    # ────────── actions ──────────
-    def browse(self) -> None:
-        """Browse for CSV/TXT file."""
-        f = filedialog.askopenfilename(filetypes=[("CSV/TXT", "*.csv *.txt")])
-        if f:
-            self.path.set(f)
+    def _preview_file(self, file_path):
+        """Preview file IOCs in background."""
+        try:
+            iocs = load_iocs(file_path)
+            count = len(iocs)
+            
+            # Update UI on main thread
+            self.root.after(0, self._update_preview, count, iocs[:3])
+            
+        except Exception as e:
+            self.root.after(0, self._update_preview_error, str(e))
 
-    def providers(self) -> None:
-        """Configure providers."""
-        d = ProviderDlg(self, self.cfg)
-        self.wait_window(d)
-        if hasattr(d, "result") and d.result:
-            self.cfg.update(d.result)
+    def _update_preview(self, count, sample_iocs):
+        """Update preview on main thread."""
+        preview_text = f"Preview: {count} IOCs found"
+        if sample_iocs:
+            types = list(set(ioc['type'] for ioc in sample_iocs))
+            preview_text += f" (types: {', '.join(types)})"
+        
+        self.format_label.config(text=preview_text, foreground="green")
 
-    def proxy(self) -> None:
-        """Configure proxy."""
-        ProxyDlg(self)
+    def _update_preview_error(self, error):
+        """Update preview error on main thread."""
+        self.format_label.config(text=f"Error: {error}", foreground="red")
 
-    def clear(self) -> None:
-        """Clear output text."""
+    def _show_progress(self, message):
+        """Show progress bar with message."""
+        self.progress_label.config(text=message)
+        self.progress_frame.grid()
+        self.progress.config(mode="indeterminate")
+        self.progress.start(10)
+
+    def _update_progress(self, processed, total, message=""):
+        """Update progress bar with determinate progress."""
+        self.root.after(0, self._update_progress_ui, processed, total, message)
+
+    def _update_progress_ui(self, processed, total, message):
+        """Update progress UI on main thread."""
+        if total > 0:
+            self.progress.stop()
+            self.progress.config(mode="determinate", maximum=total, value=processed)
+            percent = int((processed / total) * 100)
+            self.progress_label.config(text=f"{message} ({processed}/{total} - {percent}%)")
+        else:
+            self.progress_label.config(text=message)
+
+    def _hide_progress(self):
+        """Hide progress bar."""
+        self.root.after(0, self._hide_progress_ui)
+
+    def _hide_progress_ui(self):
+        """Hide progress UI on main thread."""
+        self.progress.stop()
+        self.progress_frame.grid_remove()
+
+    def _run_sub(self, cmd):
+        try:
+            self._show_progress("Starting process...")
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, 
+                                     stderr=subprocess.STDOUT, text=True)
+            for line in process.stdout:
+                line_stripped = line.rstrip()
+                self.q.put((_classify(line_stripped), line_stripped))
+                
+                # Track progress for batch processing
+                if "Found" in line_stripped and "IOCs to process:" in line_stripped:
+                    try:
+                        parts = line_stripped.split()
+                        self.total_iocs = int(parts[1])
+                        self._update_progress(0, self.total_iocs, "Processing IOCs")
+                    except (ValueError, IndexError):
+                        pass
+                
+                elif line_stripped.startswith("Processing IOC:"):
+                    self.processed_iocs += 1
+                    if self.total_iocs > 0:
+                        self._update_progress(self.processed_iocs, self.total_iocs, "Processing IOCs")
+                        
+        except Exception as e:
+            self.q.put(("error", f"Process error: {str(e)}"))
+        finally:
+            self._hide_progress()
+            self.q.put(("info", "✓ completed"))
+
+    def _start_single(self, *_):
+        if self.running:
+            return
+        v = self.val.get().strip()
+        t = self.type_cb.get()
+        if not v:
+            return
+        self._log("info", f"=== {t}:{v} ===")
+        cmd = [PYTHON, SCRIPT, t, v]
+        if self.no_virustotal.get():
+            cmd.append("--no-virustotal")
+        
+        self.processed_iocs = 0
+        self.total_iocs = 1
+        threading.Thread(target=self._run_sub, args=(cmd,), daemon=True).start()
+        self.running = True
+
+    def _start_batch(self):
+        if self.running:
+            return
+        p = self.file_var.get().strip()
+        if not p or not os.path.exists(p):
+            return
+        
+        self._log("info", f"=== Batch {p} ===")
+        
+        # Use format-agnostic approach
+        path = Path(p)
+        if path.suffix.lower() in ['.csv', '.tsv', '.xlsx', '.txt']:
+            cmd = [PYTHON, SCRIPT, "--file", p]
+        else:
+            # Fallback to old behavior
+            t = self.type_cb.get()
+            if p.lower().endswith(".csv"):
+                cmd = [PYTHON, SCRIPT, "--csv", p]
+            else:
+                cmd = [PYTHON, SCRIPT, t, "--file", p]
+        
+        if self.no_virustotal.get():
+            cmd.append("--no-virustotal")
+        
+        self.processed_iocs = 0
+        self.total_iocs = 0
+        threading.Thread(target=self._run_sub, args=(cmd,), daemon=True).start()
+        self.running = True
+
+    def _browse(self):
+        filetypes = [
+            ("All Supported", "*.csv;*.tsv;*.xlsx;*.txt"),
+            ("CSV files", "*.csv"),
+            ("TSV files", "*.tsv"), 
+            ("Excel files", "*.xlsx"),
+            ("Text files", "*.txt"),
+            ("All files", "*.*")
+        ]
+        p = filedialog.askopenfilename(filetypes=filetypes)
+        if p:
+            self.file_var.set(p)
+            self._update_format_info(p)
+            self._validate_file(p)
+
+    def _clear(self):
         self.out.config(state=tk.NORMAL)
         self.out.delete("1.0", tk.END)
         self.out.config(state=tk.DISABLED)
+        for k in self.stats:
+            self.stats[k] = 0
+            self.lab_stats[k].configure(text=f"{k}:0")
 
-    def single(self) -> None:
-        """Run single IOC lookup."""
-        if self.proc:
-            return
-        v = self.val.get().strip()
-        if not v:
-            messagebox.showerror("Input", "Enter an IOC value")
-            return
-        cmd = [PY, SCRIPT, self.typ.get(), v]
-        
-        # Fix: Add selected providers as additional flags, preserving defaults
-        for provider, enabled in self.cfg.items():
-            if enabled:
-                cmd.append(f"--{provider}")
-        
-        # Always include rate-limited providers when any are selected
-        if any(self.cfg.values()):
-            cmd.append("--rate")
-        
-        self._start(cmd)
+    def _log(self, typ, msg):
+        if _should_show(msg, self.show_only.get()):
+            self.out.config(state=tk.NORMAL)
+            self.out.insert(tk.END, msg + "\n", typ)
+            self.out.see(tk.END)
+            self.out.config(state=tk.DISABLED)
+        self.stats['total'] += 1
+        if typ in ('threat', 'clean', 'error'):
+            self.stats[typ] += 1
+            self.lab_stats[typ].configure(text=f"{typ}:{self.stats[typ]}")
+        self.lab_stats['total'].configure(text=f"total:{self.stats['total']}")
 
-    def batch(self) -> None:
-        """Run batch CSV processing."""
-        if self.proc:
-            return
-        p = self.path.get().strip()
-        if not p:
-            messagebox.showerror("File", "Select a CSV/TXT file")
-            return
-        if not Path(p).exists():
-            messagebox.showerror("File", "File not found")
-            return
-        
-        # Add debug logging for GUI
-        log.debug(f"CSV selected: {p}")
-        
-        # Fix: Enhanced CSV command with progress output and provider merging
-        input_path = Path(p)
-        output_file = str(input_path.with_name(input_path.stem + "_results.csv"))
-        cmd = [PY, SCRIPT, "--csv", p, "-o", output_file]
-        
-        # Add selected providers as additional flags, preserving defaults
-        for provider, enabled in self.cfg.items():
-            if enabled:
-                cmd.append(f"--{provider}")
-        
-        # Always include rate-limited providers when any are selected
-        if any(self.cfg.values()):
-            cmd.append("--rate")
-        
-        # Add status message for CSV processing
-        self.out.config(state=tk.NORMAL)
-        self.out.insert(tk.END, f"Starting CSV processing: {p}\n")
-        self.out.insert(tk.END, f"Output will be saved to: {output_file}\n")
-        self.out.insert(tk.END, f"Command: {' '.join(cmd)}\n")  # Debug: show actual command
-        self.out.insert(tk.END, "-" * 50 + "\n")
-        self.out.see(tk.END)
-        self.out.config(state=tk.DISABLED)
-        
-        log.debug(f"Starting subprocess with command: {' '.join(cmd)}")
-        self._start(cmd)
+    def _poll(self):
+        while not self.q.empty():
+            typ, msg = self.q.get_nowait()
+            self._log(typ, msg)
+            if "✓ completed" in msg.lower():
+                self.running = False
+        self.root.after_idle(lambda: self.root.after(150, self._poll))
 
-    def _start(self, cmd: list) -> None:
-        """Start subprocess with UTF-8 handling."""
-        if self.auto_clear.get():
-            self.clear()
-        
-        # Prevent starting multiple processes
-        if self.proc and self.proc.poll() is None:
-            log.warning("Process already running, ignoring new request")
-            return
-        
-        try:
-            # Set environment for UTF-8 output
-            env = os.environ.copy()
-            env['PYTHONIOENCODING'] = 'utf-8'
-            
-            # Fix: Add unbuffered output for real-time display
-            self.proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding='utf-8',
-                env=env,
-                bufsize=1,  # Line buffered for real-time output
-                universal_newlines=True
-            )
-            log.info(f"Started subprocess: {' '.join(cmd)}")
-        except Exception as e:
-            log.error(f"Failed to start subprocess: {e}")
-            messagebox.showerror("Error", f"Failed to start process: {e}")
+    def run(self):
+        self.root.mainloop()
 
-    def _poll(self) -> None:
-        """Poll subprocess for output."""
-        if self.proc:
-            try:
-                # Read available lines without blocking
-                lines_read = 0
-                while lines_read < 20:  # Increased limit for better responsiveness
-                    line = self.proc.stdout.readline()
-                    if not line:
-                        break
-                    lines_read += 1
-                    
-                    # Debug logging for each line
-                    log.debug(f"Subprocess output: {repr(line)}")
-                    
-                    # Display line in output widget
-                    self.out.config(state=tk.NORMAL)
-                    self.out.insert(tk.END, line)
-                    self.out.see(tk.END)
-                    self.out.config(state=tk.DISABLED)
-                    
-                    # Force GUI update for immediate display
-                    self.update_idletasks()
-                
-                # Check if process finished
-                if self.proc.poll() is not None:
-                    # Read any remaining output
-                    remaining = self.proc.stdout.read()
-                    if remaining:
-                        log.debug(f"Final subprocess output: {repr(remaining)}")
-                        self.out.config(state=tk.NORMAL)
-                        self.out.insert(tk.END, remaining)
-                        self.out.see(tk.END)
-                        self.out.config(state=tk.DISABLED)
-                    
-                    self.proc = None
-                    log.info("Subprocess completed")
-                    
-                    # Add completion message
-                    self.out.config(state=tk.NORMAL)
-                    self.out.insert(tk.END, "\n" + "="*50 + "\n")
-                    self.out.insert(tk.END, "CSV processing completed!\n")
-                    self.out.see(tk.END)
-                    self.out.config(state=tk.DISABLED)
-                    
-            except Exception as e:
-                log.error(f"Error polling subprocess: {e}")
-                self.proc = None
-        
-        self.after(100, self._poll)
+# Keep original class name for compatibility
+App = IOCCheckerGUI
+
+def main():
+    """Main entry point."""
+    logging.basicConfig(level=logging.INFO)
+    IOCCheckerGUI().run()
 
 if __name__ == "__main__":
-    try:
-        App().mainloop()
-    except Exception as e:
-        log.error(f"Application error: {e}")
-        print(f"Fatal error: {e}")
+    main()
