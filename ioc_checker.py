@@ -33,6 +33,10 @@ def _fmt(raw: str | Dict[str, Any]) -> str:
         log.debug(f"Failed to parse provider response: {e}")
         return "unparseable"
 
+    # Handle None input gracefully
+    if data is None:
+        return "unparseable"
+
     # AbuseIPDB format
     if "abuseConfidenceScore" in str(data):
         try:
@@ -61,7 +65,7 @@ def _fmt(raw: str | Dict[str, Any]) -> str:
             return "Parse error"
 
     # OTX format
-    if "pulse_info" in data:
+    if "pulse_info" in str(data):
         try:
             c = data["pulse_info"]["count"]
             return "Clean" if c == 0 else f"Malicious – {c} OTX pulse{'s' if c!=1 else ''}"
@@ -70,7 +74,7 @@ def _fmt(raw: str | Dict[str, Any]) -> str:
             return "Parse error"
 
     # ThreatFox format
-    if "query_status" in data:
+    if "query_status" in str(data):
         if data.get("query_status") == "no_result":
             return "Clean"
         elif data.get("query_status") == "ok" and data.get("data"):
@@ -90,9 +94,12 @@ def _fmt(raw: str | Dict[str, Any]) -> str:
 async def _query(session: aiohttp.ClientSession, typ: str, val: str, rate: bool, selected_providers: list = None) -> Dict[str, str]:
     """Query available providers for an IOC."""
     if selected_providers:
-        # Use only selected providers
+        # Fix: Merge default always-on providers with user selections
         all_providers = list(ALWAYS_ON) + list(RATE_LIMIT)
-        provs = [p for p in all_providers if p.name in selected_providers]
+        # Get always-on providers + specifically selected providers
+        always_on_names = [p.name for p in ALWAYS_ON]
+        combined_names = always_on_names + selected_providers
+        provs = [p for p in all_providers if p.name in combined_names]
     else:
         # Default behavior: always-on + rate-limited if enabled
         provs = list(ALWAYS_ON) + (list(RATE_LIMIT) if rate else [])
@@ -163,7 +170,12 @@ async def process_csv(csv_path: str, out: str, rate: bool, selected_providers: l
 
     # Process IOCs
     results = []
-    conn = aiohttp.TCPConnector(limit_per_host=10, ssl=False, force_close=True)
+    try:
+        conn = aiohttp.TCPConnector(limit_per_host=10, ssl=False, force_close=True)
+    except Exception as e:
+        log.error(f"Failed to create connector: {e}")
+        return
+    
     try:
         async with aiohttp.ClientSession(connector=conn) as sess:
             for idx, row in enumerate(rows, 1):

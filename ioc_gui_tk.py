@@ -180,10 +180,14 @@ class App(tk.Tk):
             return
         cmd = [PY, SCRIPT, self.typ.get(), v]
         
-        # Add individual provider flags based on GUI selection
+        # Fix: Add selected providers as additional flags, preserving defaults
         for provider, enabled in self.cfg.items():
             if enabled:
                 cmd.append(f"--{provider}")
+        
+        # Always include rate-limited providers when any are selected
+        if any(self.cfg.values()):
+            cmd.append("--rate")
         
         self._start(cmd)
 
@@ -198,12 +202,28 @@ class App(tk.Tk):
         if not Path(p).exists():
             messagebox.showerror("File", "File not found")
             return
-        cmd = [PY, SCRIPT, "--csv", p, "-o", str(Path(p).with_suffix("_results.csv"))]
         
-        # Add individual provider flags based on GUI selection
+        # Fix: Enhanced CSV command with progress output and provider merging
+        input_path = Path(p)
+        output_file = str(input_path.with_name(input_path.stem + "_results.csv"))
+        cmd = [PY, SCRIPT, "--csv", p, "-o", output_file]
+        
+        # Add selected providers as additional flags, preserving defaults
         for provider, enabled in self.cfg.items():
             if enabled:
                 cmd.append(f"--{provider}")
+        
+        # Always include rate-limited providers when any are selected
+        if any(self.cfg.values()):
+            cmd.append("--rate")
+        
+        # Add status message for CSV processing
+        self.out.config(state=tk.NORMAL)
+        self.out.insert(tk.END, f"Starting CSV processing: {p}\n")
+        self.out.insert(tk.END, f"Output will be saved to: {output_file}\n")
+        self.out.insert(tk.END, "-" * 50 + "\n")
+        self.out.see(tk.END)
+        self.out.config(state=tk.DISABLED)
         
         self._start(cmd)
 
