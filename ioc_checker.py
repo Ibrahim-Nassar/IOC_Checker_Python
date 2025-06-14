@@ -198,11 +198,15 @@ async def process_csv(csv_path: str, out: str, rate: bool, selected_providers: l
                             # Add debug logging and console output for each result
                             log.debug(f"Result row added: {v.strip()}")
                             
-                            # Format result for display like single IOC mode
+                            # Format result for display with clean status
                             print(f"Result: {result['value']} ({result['type']})")
-                            for provider, raw_result in result['results'].items():
-                                formatted = _fmt(raw_result)
-                                print(f"  {provider}: {formatted}")
+                            for provider, provider_data in result['results'].items():
+                                if isinstance(provider_data, dict) and "status" in provider_data:
+                                    status = provider_data["status"]
+                                    print(f"  {provider}: {status}")
+                                else:
+                                    # Handle legacy string responses during transition
+                                    print(f"  {provider}: {provider_data}")
                             print()  # Empty line for readability
                             
                         except Exception as e:
@@ -220,17 +224,14 @@ async def process_csv(csv_path: str, out: str, rate: bool, selected_providers: l
         log.error(f"Session error during CSV processing: {e}")
         return
 
-    # Write reports
+    # Write only CSV report
     try:
         WRITERS["csv"](outpath, results)
-        WRITERS["json"](outpath.with_suffix(".json"), results)
-        WRITERS["xlsx"](outpath.with_suffix(".xlsx"), results)
-        WRITERS["html"](outpath.with_suffix(".html"), results)
-        log.info(f"Reports written → {outpath}*")
-        print(f"CSV processing complete! Reports saved to {outpath}*")
+        log.info(f"Clean CSV report written → {outpath}")
+        print(f"CSV processing complete! Clean report saved to {outpath}")
     except Exception as e:
-        log.error(f"Failed to write reports: {e}")
-        print(f"Error writing reports: {e}")
+        log.error(f"Failed to write CSV report: {e}")
+        print(f"Error writing CSV report: {e}")
 
 # ────────── CLI entry point ──────────
 def main() -> None:

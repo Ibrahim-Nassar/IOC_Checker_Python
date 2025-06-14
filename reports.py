@@ -1,83 +1,93 @@
 """
-Report writers: CSV (always), JSON, Excel, HTML with robust error handling.
-• UTF-8 encoding • Exception handling • Graceful fallbacks
+Clean CSV report writer with structured IOC analysis.
+• Single CSV output only • Clear status columns • UTF-8 encoding
 """
 from __future__ import annotations
-import csv, json, pathlib, logging
+import csv, pathlib, logging
 from typing import List, Dict, Any
-
-try:
-    import pandas as pd
-    PANDAS_AVAILABLE = True
-except ImportError:
-    PANDAS_AVAILABLE = False
 
 log = logging.getLogger("reports")
 
-def write_csv(path: pathlib.Path, rows: List[Dict[str, Any]]) -> None:
-    """Write CSV report with UTF-8 encoding."""
-    if not rows:
+def _calculate_overall_risk(provider_results: Dict[str, Dict[str, Any]]) -> str:
+    """Calculate overall risk level from provider statuses."""
+    risk_scores = {"malicious": 3, "suspicious": 2, "clean": 1, "n/a": 0}
+    max_risk = 0
+    
+    for provider_data in provider_results.values():
+        if isinstance(provider_data, dict) and "status" in provider_data:
+            status = provider_data["status"]
+            max_risk = max(max_risk, risk_scores.get(status, 0))
+    
+    if max_risk >= 3:
+        return "HIGH"
+    elif max_risk >= 2:
+        return "MEDIUM"
+    elif max_risk >= 1:
+        return "LOW"
+    else:
+        return "LOW"
+
+def write_clean_csv(path: pathlib.Path, results: List[Dict[str, Any]]) -> None:
+    """Write clean CSV report with structured columns."""
+    if not results:
         log.warning("No data to write to CSV")
         return
+    
     try:
-        with path.open("w", newline="", encoding="utf-8") as fh:
-            fieldnames = list(rows[0].keys()) if rows else []
-            w = csv.DictWriter(fh, fieldnames=fieldnames)
-            w.writeheader()
-            w.writerows(rows)
-        log.info(f"CSV report written: {path}")
-    except Exception as e:
-        log.error(f"Failed to write CSV report: {e}")
-
-def write_json(path: pathlib.Path, rows: List[Dict[str, Any]]) -> None:
-    """Write JSON report with UTF-8 encoding."""
-    try:
-        path.write_text(json.dumps(rows, indent=2, ensure_ascii=False), encoding="utf-8")
-        log.info(f"JSON report written: {path}")
-    except Exception as e:
-        log.error(f"Failed to write JSON report: {e}")
-
-def write_excel(path: pathlib.Path, rows: List[Dict[str, Any]]) -> None:
-    """Write Excel report if pandas is available."""
-    if not PANDAS_AVAILABLE:
-        log.warning("Pandas not available, skipping Excel report")
-        return
-    if not rows:
-        log.warning("No data to write to Excel")
-        return
-    try:
-        pd.DataFrame(rows).to_excel(path, index=False)
-        log.info(f"Excel report written: {path}")
-    except Exception as e:
-        log.error(f"Failed to write Excel report: {e}")
-
-def write_html(path: pathlib.Path, rows: List[Dict[str, Any]]) -> None:
-    """Write HTML report with proper encoding."""
-    if not rows:
-        log.warning("No data to write to HTML")
-        return
-    try:
-        if PANDAS_AVAILABLE:
-            head = "<meta charset='utf-8'><style>table{border-collapse:collapse}td,th{border:1px solid #999;padding:4px}</style>"
-            html_content = head + pd.DataFrame(rows).to_html(index=False, escape=False)
-        else:
-            # Fallback HTML generation without pandas
-            head = "<meta charset='utf-8'><style>table{border-collapse:collapse}td,th{border:1px solid #999;padding:4px}</style>"
-            if rows:
-                table_rows = []
-                headers = list(rows[0].keys())
-                header_row = "<tr>" + "".join(f"<th>{h}</th>" for h in headers) + "</tr>"
-                table_rows.append(header_row)
-                for row in rows:
-                    data_row = "<tr>" + "".join(f"<td>{str(row.get(h, ''))}</td>" for h in headers) + "</tr>"
-                    table_rows.append(data_row)
-                html_content = head + "<table>" + "".join(table_rows) + "</table>"
-            else:
-                html_content = head + "<p>No data</p>"
+        # Build clean rows with structured columns
+        clean_rows = []
+        for result in results:
+            ioc = result.get("value", "")
+            ioc_type = result.get("type", "unknown")
+            provider_results = result.get("results", {})
+            
+            # Extract status for each major provider
+            row = {
+                "ioc": ioc,
+                "ioc_type": ioc_type,
+                "vt_status": "n/a",
+                "otx_status": "n/a", 
+                "abuseipdb_status": "n/a",
+                "threatfox_status": "n/a",
+                "urlhaus_status": "n/a"
+            }
+            
+            # Map provider results to status columns with correct name mapping
+            provider_mapping = {
+                "virustotal": "vt_status",
+                "otx": "otx_status", 
+                "abuseipdb": "abuseipdb_status",
+                "threatfox": "threatfox_status",
+                "urlhaus": "urlhaus_status"
+            }
+            
+            for provider_name, provider_data in provider_results.items():
+                status_key = provider_mapping.get(provider_name)
+                if status_key:
+                    if isinstance(provider_data, dict) and "status" in provider_data:
+                        row[status_key] = provider_data["status"]
+                    elif isinstance(provider_data, str):
+                        # Handle legacy string responses
+                        if provider_data.startswith("error:") or provider_data == "nokey":
+                            row[status_key] = "n/a"
+                        else:
+                            row[status_key] = "clean"  # Conservative fallback
+            
+            # Calculate overall risk
+            row["overall"] = _calculate_overall_risk(provider_results)
+            clean_rows.append(row)
         
-        path.write_text(html_content, encoding="utf-8")
-        log.info(f"HTML report written: {path}")
+        # Write to CSV
+        with path.open("w", newline="", encoding="utf-8") as fh:
+            fieldnames = ["ioc", "ioc_type", "vt_status", "otx_status", "abuseipdb_status", "threatfox_status", "urlhaus_status", "overall"]
+            writer = csv.DictWriter(fh, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(clean_rows)
+        
+        log.info(f"Clean CSV report written: {path}")
+        
     except Exception as e:
-        log.error(f"Failed to write HTML report: {e}")
+        log.error(f"Failed to write clean CSV report: {e}")
 
-WRITERS = {"csv": write_csv, "json": write_json, "xlsx": write_excel, "html": write_html}
+# Single CSV writer - remove all other formats
+WRITERS = {"csv": write_clean_csv}
