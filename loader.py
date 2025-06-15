@@ -40,6 +40,66 @@ def _clean_value(value: Any) -> str:
     return clean
 
 
+def _identify_ioc_columns(df: pd.DataFrame) -> List[str]:
+    """Identify columns that likely contain IOCs."""
+    ioc_columns = []
+    
+    # Common IOC column names (case-insensitive)
+    ioc_column_patterns = [
+        'ioc', 'ioc_value', 'indicator', 'observable', 'artifact',
+        'url', 'domain', 'ip', 'hash', 'address', 'hostname'
+    ]
+    
+    for col in df.columns:
+        col_lower = str(col).lower()
+        # Check if column name suggests it contains IOCs
+        if any(pattern in col_lower for pattern in ioc_column_patterns):
+            ioc_columns.append(col)
+    
+    return ioc_columns
+
+
+def _is_likely_ioc(ioc_type: str, value: str) -> bool:
+    """Filter out obvious false positives based on IOC type and value."""
+    value_lower = value.lower()
+    
+    # Filter out malware family names that look like filepaths
+    if ioc_type == "filepath":
+        # Common malware family patterns
+        malware_patterns = [
+            'win.', 'apk.', 'js.', 'elf.', 'osx.', 'linux.', 'android.', 'ios.',
+            'trojan.', 'backdoor.', 'adware.', 'spyware.', 'ransomware.', 'worm.', 'virus.'
+        ]
+        
+        if any(value_lower.startswith(pattern) for pattern in malware_patterns):
+            return False
+        
+        # Filter out very short "filepaths" (likely not real paths)
+        if len(value) < 5:
+            return False
+    
+    # Filter out ASN-like values that are probably not actual ASNs in this context
+    if ioc_type == "asn":
+        # In a URL-focused dataset, ASN detections are likely false positives
+        # unless they're in a column specifically for ASNs
+        return False
+    
+    # Filter out reference URLs that are not malicious IOCs
+    if ioc_type == "url":
+        # Common non-malicious reference domains
+        safe_domains = [
+            'urlscan.io', 'virustotal.com', 'app.any.run', 'bazaar.abuse.ch',
+            'tria.ge', 'infosec.exchange', 'github.com', 'twitter.com',
+            'drive.google.com', 'onedrive.live.com'
+        ]
+        
+        # Don't filter these out completely, but note they might be references
+        # For now, keep them as they could still be useful
+        pass
+    
+    return True
+
+
 def _extract_iocs_from_dataframe(df: pd.DataFrame) -> List[Dict[str, str]]:
     """Extract IOCs from a pandas DataFrame by scanning all cells."""
     iocs = []
@@ -47,24 +107,54 @@ def _extract_iocs_from_dataframe(df: pd.DataFrame) -> List[Dict[str, str]]:
     
     log.info(f"Scanning DataFrame with {len(df)} rows and {len(df.columns)} columns")
     
-    # Iterate through all cells in the DataFrame
-    for row_idx, row in df.iterrows():
-        for col_name, cell_value in row.items():
-            clean_value = _clean_value(cell_value)
-            if not clean_value or clean_value in seen_values:
-                continue
-            
-            # Try to detect IOC type
-            ioc_type, normalized = detect_ioc_type(clean_value)
-            if ioc_type and ioc_type != "unknown":
-                iocs.append({
-                    "value": normalized,
-                    "type": ioc_type,
-                    "original": clean_value,
-                    "source": f"row_{row_idx}_{col_name}"
-                })
-                seen_values.add(clean_value)
-                log.debug(f"Found {ioc_type}: {normalized}")
+    # Try to identify IOC value columns first
+    ioc_columns = _identify_ioc_columns(df)
+    
+    if ioc_columns:
+        log.info(f"Found likely IOC columns: {ioc_columns}")
+        # Focus on IOC-specific columns
+        for row_idx, row in df.iterrows():
+            for col_name in ioc_columns:
+                if col_name in row:
+                    clean_value = _clean_value(row[col_name])
+                    if not clean_value or clean_value in seen_values:
+                        continue
+                    
+                    # Try to detect IOC type
+                    ioc_type, normalized = detect_ioc_type(clean_value)
+                    if ioc_type and ioc_type != "unknown":
+                        # Additional filtering for false positives
+                        if _is_likely_ioc(ioc_type, normalized):
+                            iocs.append({
+                                "value": normalized,
+                                "type": ioc_type,
+                                "original": clean_value,
+                                "source": f"row_{row_idx}_{col_name}"
+                            })
+                            seen_values.add(clean_value)
+                            log.debug(f"Found {ioc_type}: {normalized}")
+    else:
+        # Fallback: scan all cells but be more selective
+        log.info("No specific IOC columns identified, scanning all cells with strict filtering")
+        for row_idx, row in df.iterrows():
+            for col_name, cell_value in row.items():
+                clean_value = _clean_value(cell_value)
+                if not clean_value or clean_value in seen_values:
+                    continue
+                
+                # Try to detect IOC type
+                ioc_type, normalized = detect_ioc_type(clean_value)
+                if ioc_type and ioc_type != "unknown":
+                    # Apply strict filtering for false positives
+                    if _is_likely_ioc(ioc_type, normalized):
+                        iocs.append({
+                            "value": normalized,
+                            "type": ioc_type,
+                            "original": clean_value,
+                            "source": f"row_{row_idx}_{col_name}"
+                        })
+                        seen_values.add(clean_value)
+                        log.debug(f"Found {ioc_type}: {normalized}")
     
     return iocs
 
@@ -74,27 +164,111 @@ def _extract_iocs_from_text(content: str) -> List[Dict[str, str]]:
     iocs = []
     seen_values: Set[str] = set()
     
-    # Split by common delimiters and newlines
-    lines = re.split(r'[\n\r,;\t|]+', content)
-    
+    lines = content.split('\n')
     log.info(f"Scanning {len(lines)} text lines")
     
-    for line_num, line in enumerate(lines, 1):
-        clean_value = _clean_value(line)
-        if not clean_value or clean_value in seen_values:
+    # Try to detect if this is a CSV file
+    is_csv = False
+    data_start_line = None
+    ioc_column_index = None
+    
+    # Look for CSV header (might be in comments)
+    for i, line in enumerate(lines):
+        line_clean = line.strip()
+        if not line_clean:
             continue
         
-        # Try to detect IOC type
-        ioc_type, normalized = detect_ioc_type(clean_value)
-        if ioc_type and ioc_type != "unknown":
-            iocs.append({
-                "value": normalized,
-                "type": ioc_type,
-                "original": clean_value,
-                "source": f"line_{line_num}"
-            })
-            seen_values.add(clean_value)
-            log.debug(f"Found {ioc_type}: {normalized}")
+        # Check for header in comments
+        if line_clean.startswith('#') and ('ioc_value' in line_clean or 'first_seen_utc' in line_clean):
+            # This looks like the ThreatFox header format
+            header_content = line_clean.lstrip('#').strip()
+            if '"' in header_content:
+                # Extract column names from quoted CSV header
+                columns = [col.strip(' "') for col in header_content.split('","')]
+                for j, col in enumerate(columns):
+                    if col.lower() in ['ioc_value', 'indicator', 'url']:
+                        ioc_column_index = j
+                        log.info(f"Found IOC column '{col}' at index {j} in comment header")
+                        is_csv = True
+                        # Data starts after comments
+                        for k in range(i + 1, len(lines)):
+                            if lines[k].strip() and not lines[k].strip().startswith('#'):
+                                data_start_line = k
+                                break
+                        break
+                break
+        
+        # Check for regular CSV header (not in comments)
+        elif not line_clean.startswith('#') and ',' in line_clean:
+            if any(col in line_clean.lower() for col in ['ioc', 'url', 'indicator', 'value']):
+                columns = [col.strip(' "') for col in line_clean.split(',')]
+                for j, col in enumerate(columns):
+                    col_lower = col.lower()
+                    if col_lower in ['ioc_value', 'indicator', 'url', 'ioc']:
+                        ioc_column_index = j
+                        log.info(f"Found IOC column '{col}' at index {j}")
+                        is_csv = True
+                        data_start_line = i + 1
+                        break
+                break
+    
+    if is_csv and ioc_column_index is not None and data_start_line is not None:
+        # Process as CSV, focusing on the IOC column
+        log.info("Processing as CSV format, focusing on IOC column")
+        for line_num, line in enumerate(lines[data_start_line:], data_start_line + 1):
+            line_clean = line.strip()
+            if line_clean.startswith('#') or not line_clean:
+                continue
+            
+            try:
+                # Handle CSV with quoted values
+                import csv
+                from io import StringIO
+                reader = csv.reader(StringIO(line_clean))
+                values = next(reader)
+                
+                if len(values) > ioc_column_index:
+                    clean_value = _clean_value(values[ioc_column_index])
+                    if not clean_value or clean_value in seen_values:
+                        continue
+                    
+                    # Try to detect IOC type
+                    ioc_type, normalized = detect_ioc_type(clean_value)
+                    if ioc_type and ioc_type != "unknown":
+                        if _is_likely_ioc(ioc_type, normalized):
+                            iocs.append({
+                                "value": normalized,
+                                "type": ioc_type,
+                                "original": clean_value,
+                                "source": f"line_{line_num}_col_{ioc_column_index}"
+                            })
+                            seen_values.add(clean_value)
+                            log.debug(f"Found {ioc_type}: {normalized}")
+            except Exception as e:
+                log.debug(f"Error parsing CSV line {line_num}: {e}")
+                continue
+    else:
+        # Process as plain text, split by common delimiters
+        log.info("Processing as plain text")
+        text_lines = re.split(r'[\n\r,;\t|]+', content)
+        
+        for line_num, line in enumerate(text_lines, 1):
+            clean_value = _clean_value(line)
+            if not clean_value or clean_value in seen_values:
+                continue
+            
+            # Try to detect IOC type
+            ioc_type, normalized = detect_ioc_type(clean_value)
+            if ioc_type and ioc_type != "unknown":
+                if _is_likely_ioc(ioc_type, normalized):
+                    iocs.append({
+                        "value": normalized,
+                        "type": ioc_type,
+                        "original": clean_value,
+                        "source": f"line_{line_num}"
+                    })
+                    seen_values.add(clean_value)
+                    log.debug(f"Found {ioc_type}: {normalized}")
     
     return iocs
 
@@ -170,10 +344,10 @@ def _load_with_pandas(file_path: Path) -> List[Dict[str, str]]:
         if file_path.suffix.lower() == '.xlsx':
             df = pd.read_excel(file_path, engine='openpyxl')
         elif file_path.suffix.lower() == '.tsv':
-            df = pd.read_csv(file_path, sep='\t', engine='python')
+            df = pd.read_csv(file_path, sep='\t', engine='python', comment='#')
         else:  # .csv or other
-            # Try auto-detection of delimiter
-            df = pd.read_csv(file_path, sep=None, engine='python')
+            # Try auto-detection of delimiter, skip comment lines
+            df = pd.read_csv(file_path, sep=None, engine='python', comment='#')
         
         return _extract_iocs_from_dataframe(df)
                         

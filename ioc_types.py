@@ -17,6 +17,31 @@ _RE_WALLET  = re.compile(r"^0x[a-fA-F0-9]{40}$")
 _RE_ASN     = re.compile(r"^AS\d+$")
 _RE_ATTCK   = re.compile(r"^T\d{4}(?:\.\d{3})?$")
 
+# Common valid TLDs (subset of most common ones)
+_VALID_TLDS = {
+    'com', 'org', 'net', 'edu', 'gov', 'mil', 'int', 'io', 'co', 'ch', 'de', 'uk', 'fr', 'it', 'es', 'pl', 'nl', 'be', 'se', 'no', 'dk', 'fi', 'pt', 'gr', 'at', 'cz', 'hu', 'ro', 'bg', 'hr', 'si', 'sk', 'lt', 'lv', 'ee', 'mt', 'lu', 'cy', 'ie', 'is', 'li', 'mc', 'sm', 'va', 'ad', 'ru', 'ua', 'by', 'md', 'ge', 'am', 'az', 'kz', 'kg', 'tj', 'tm', 'uz', 'cn', 'jp', 'kr', 'tw', 'hk', 'mo', 'sg', 'my', 'th', 'vn', 'ph', 'id', 'in', 'pk', 'bd', 'lk', 'np', 'bt', 'mv', 'af', 'ir', 'iq', 'sy', 'lb', 'jo', 'ps', 'il', 'tr', 'cy', 'eg', 'ly', 'tn', 'dz', 'ma', 'sd', 'so', 'et', 'ke', 'tz', 'ug', 'rw', 'bi', 'mw', 'zm', 'zw', 'bw', 'na', 'sz', 'ls', 'mg', 'mu', 'sc', 'km', 'dj', 'er', 'cf', 'td', 'cm', 'gq', 'ga', 'cg', 'cd', 'ao', 'st', 'gh', 'tg', 'bj', 'ne', 'bf', 'ml', 'sn', 'gm', 'gw', 'cv', 'sl', 'lr', 'ci', 'gn', 'mr', 'eh', 'us', 'ca', 'mx', 'gt', 'bz', 'sv', 'hn', 'ni', 'cr', 'pa', 'cu', 'do', 'ht', 'jm', 'tt', 'bb', 'gd', 'vc', 'lc', 'dm', 'ag', 'kn', 'ms', 'ai', 'vg', 'vi', 'pr', 'br', 'ar', 'uy', 'py', 'bo', 'pe', 'ec', 'co', 've', 'gy', 'sr', 'gf', 'fk', 'gs', 'au', 'nz', 'pg', 'sb', 'vu', 'nc', 'pf', 'wf', 'ws', 'to', 'tv', 'nu', 'ck', 'ki', 'pw', 'fm', 'mh', 'nr', 'um', 'mp', 'gu', 'as', 'cc', 'cx', 'nf', 'hm', 'aq', 'tf', 'bv', 'sj', 'gl', 'fo', 'ax', 'info', 'biz', 'name', 'pro', 'museum', 'coop', 'aero', 'jobs', 'mobi', 'travel', 'xxx', 'cat', 'tel', 'asia', 'post', 'arpa', 'local', 'localhost', 'test', 'example', 'invalid', 'onion', 'exit', 'i2p'
+}
+
+# Common file extensions that should not be considered domains
+_FILE_EXTENSIONS = {
+    'exe', 'dll', 'sys', 'bat', 'cmd', 'com', 'scr', 'pif', 'vbs', 'vbe', 'js', 'jar', 'class', 'py', 'pl', 'rb', 'sh', 'ps1',
+    'txt', 'doc', 'docx', 'pdf', 'rtf', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp',
+    'jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff', 'svg', 'ico', 'webp',
+    'mp3', 'wav', 'flac', 'aac', 'ogg', 'wma', 'm4a',
+    'mp4', 'avi', 'mov', 'wmv', 'flv', 'mkv', 'webm', 'm4v',
+    'zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz', 'lzma',
+    'log', 'cfg', 'ini', 'conf', 'xml', 'json', 'yaml', 'yml', 'csv', 'tsv',
+    'iso', 'img', 'vhd', 'vmdk', 'ova', 'ovf',
+    'msi', 'cab', 'deb', 'rpm', 'dmg', 'pkg', 'app',
+    'tmp', 'temp', 'bak', 'old', 'orig', 'cache'
+}
+
+# Known malware family prefixes/patterns that should not be considered domains
+_MALWARE_PREFIXES = {
+    'win.', 'apk.', 'js.', 'elf.', 'osx.', 'linux.', 'android.', 'ios.',
+    'trojan.', 'backdoor.', 'adware.', 'spyware.', 'ransomware.', 'worm.', 'virus.'
+}
+
 def _strip_port(v:str)->str:
     if v.startswith('[') and ']:' in v: return v.split(']:')[0][1:]
     if v.count(':')==1: return v.split(':')[0]
@@ -29,7 +54,39 @@ def _extract_ip(v: str) -> str:
 def _valid_ip(v:str)->bool:
     try: ipaddress.ip_address(_strip_port(v)); return True
     except ValueError: return False
-def _valid_domain(v:str)->bool:  return bool(_RE_DOMAIN.fullmatch(v))
+def _valid_domain(v:str)->bool:  
+    # First check basic regex pattern
+    if not _RE_DOMAIN.fullmatch(v):
+        return False
+    
+    # Extract the TLD (last part after final dot)
+    parts = v.lower().split('.')
+    if len(parts) < 2:
+        return False
+    
+    tld = parts[-1]
+    
+    # Check if it's a file extension masquerading as a domain
+    if tld in _FILE_EXTENSIONS:
+        return False
+    
+    # Check if it matches malware family patterns
+    v_lower = v.lower()
+    for prefix in _MALWARE_PREFIXES:
+        if v_lower.startswith(prefix):
+            return False
+    
+    # Check if TLD is valid (must be in our known TLD list)
+    if tld not in _VALID_TLDS:
+        return False
+    
+    # Additional check: if it's just two parts and both are short, it might be malware family
+    if len(parts) == 2 and len(parts[0]) <= 4 and len(parts[1]) <= 8:
+        # Common malware family pattern like win.dcrat, apk.hook, etc.
+        if parts[0] in ['win', 'apk', 'js', 'elf', 'osx', 'linux', 'android', 'ios'] and parts[1] not in _VALID_TLDS:
+            return False
+    
+    return True
 def _valid_url(v:str)->bool:
     p=urllib.parse.urlparse(v)
     return p.scheme in ("http","https","ftp","ftps") and bool(p.netloc)
