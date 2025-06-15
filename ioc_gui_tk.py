@@ -143,9 +143,13 @@ class ProviderDlg:
         filter_combo.pack(side='left', padx=(10, 0))
         filter_combo.bind('<<ComboboxSelected>>', self._on_filter_change)
         
-        # Create a scrollable frame for the provider list
-        canvas = tk.Canvas(main_frame, height=300)
-        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
+        # Create a simple frame for the provider list (remove problematic scrolling)
+        list_container = ttk.Frame(main_frame)
+        list_container.pack(fill='both', expand=True, pady=(0, 15))
+        
+        # Add a canvas with scrollbar for the provider list
+        canvas = tk.Canvas(list_container, height=250)
+        scrollbar = ttk.Scrollbar(list_container, orient="vertical", command=canvas.yview)
         self.list_frame = ttk.Frame(canvas)
         
         self.list_frame.bind(
@@ -156,30 +160,38 @@ class ProviderDlg:
         canvas.create_window((0, 0), window=self.list_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
         
-        canvas.pack(side="left", fill="both", expand=True, pady=(0, 15))
-        scrollbar.pack(side="right", fill="y", pady=(0, 15))
+        # Pack canvas and scrollbar properly
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
         
         # Build provider widgets
         self._build_provider_widgets(config)
         
-        # Buttons
+        # Buttons frame - ensure it's separate from the scrollable area
         button_frame = ttk.Frame(main_frame)
         button_frame.pack(fill='x', pady=(15, 0))
         
-        ttk.Button(button_frame, text="Select All", command=self._select_all).pack(side='left')
-        ttk.Button(button_frame, text="Select None", command=self._select_none).pack(side='left', padx=(10, 0))
-        ttk.Button(button_frame, text="Defaults", command=self._select_defaults).pack(side='left', padx=(10, 0))
+        # Left side buttons
+        left_buttons = ttk.Frame(button_frame)
+        left_buttons.pack(side='left')
         
-        ttk.Button(button_frame, text="Cancel", command=self._cancel).pack(side='right')
-        self.ok_button = ttk.Button(button_frame, text="Save", command=self.ok)
-        self.ok_button.pack(side='right', padx=(0, 10))
+        ttk.Button(left_buttons, text="Select All", command=self._select_all).pack(side='left')
+        ttk.Button(left_buttons, text="Select None", command=self._select_none).pack(side='left', padx=(10, 0))
+        ttk.Button(left_buttons, text="Defaults", command=self._select_defaults).pack(side='left', padx=(10, 0))
+          # Right side buttons
+        right_buttons = ttk.Frame(button_frame)
+        right_buttons.pack(side='right')
+        
+        ttk.Button(right_buttons, text="Cancel", command=self._cancel).pack(side='right', padx=(10, 0))
+        save_button = ttk.Button(right_buttons, text="Save", command=self.ok)
+        save_button.pack(side='right')
         
         # Bind Enter and Escape
         self.dialog.bind('<Return>', lambda e: self.ok())
         self.dialog.bind('<Escape>', lambda e: self._cancel())
         
         # Focus on Save button
-        self.ok_button.focus_set()
+        save_button.focus_set()
     
     def _build_provider_widgets(self, config):
         """Build the provider widgets."""
@@ -225,22 +237,22 @@ class ProviderDlg:
                 self.vars[provider].set(config.get(provider, self.vars[provider].get()))
             
             var = self.vars[provider]
-            
-            # Main provider frame
+              # Main provider frame
             provider_frame = ttk.Frame(self.list_frame)
-            provider_frame.pack(fill='x', pady=3)
+            provider_frame.pack(fill='x', pady=2)
+            provider_frame.columnconfigure(1, weight=1)  # Make description column expandable
             
             # Checkbox
             checkbox = ttk.Checkbutton(provider_frame, text=provider.upper(), 
                                      variable=var, width=15)
-            checkbox.pack(side='left', anchor='w')
+            checkbox.grid(row=0, column=0, sticky='w', padx=(0, 10))
             
             # Description with IOC types
             ioc_types = provider_capabilities.get(provider, ())
             desc_with_types = f"{description} - Supports: {', '.join(ioc_types)}"
             desc_label = ttk.Label(provider_frame, text=desc_with_types, 
-                                 foreground='gray', width=45)
-            desc_label.pack(side='left', padx=(10, 0), anchor='w')
+                                 foreground='gray')
+            desc_label.grid(row=0, column=1, sticky='w', padx=(0, 10))
             
             # Always On checkbox
             always_on_attr = f"{provider}_always_on"
@@ -251,8 +263,8 @@ class ProviderDlg:
                 always_on_var = getattr(self, always_on_attr)
             
             always_on_cb = ttk.Checkbutton(provider_frame, text="Always On", 
-                                         variable=always_on_var, width=12)
-            always_on_cb.pack(side='right', anchor='e')
+                                         variable=always_on_var)
+            always_on_cb.grid(row=0, column=2, sticky='e', padx=(10, 0))
     
     def _on_filter_change(self, event=None):
         """Handle filter dropdown change."""
