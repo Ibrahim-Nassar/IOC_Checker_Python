@@ -26,28 +26,24 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger("ioc_checker")
 
 # ────────── concise console formatter ──────────
-def _fmt(raw: str | Dict[str, Any]) -> str:
+def _fmt(data: Dict[str, Any]) -> str:
     """Format provider response for console display."""
-    try:
-        data = json.loads(raw) if isinstance(raw, str) else raw
-    except (json.JSONDecodeError, TypeError) as e:
-        log.debug(f"Failed to parse provider response: {e}")
-        return "unparseable"
-
     # Handle None input gracefully
     if data is None:
         return "unparseable"
 
     # AbuseIPDB format
-    if "abuseConfidenceScore" in str(data):
+    if "abuseConfidenceScore" in data:
         try:
             s = data["data"]["abuseConfidenceScore"]
             wl = data["data"]["isWhitelisted"]
             return "Clean (whitelisted)" if wl else ("Clean" if s == 0 else f"Malicious – score {s}")
         except (KeyError, TypeError) as e:
             log.debug(f"AbuseIPDB parsing error: {e}")
-            return "Parse error"    # VirusTotal format
-    if "last_analysis_stats" in str(data):
+            return "Parse error"
+    
+    # VirusTotal format
+    if "last_analysis_stats" in data:
         try:
             stats = data["data"]["attributes"]["last_analysis_stats"]
             malicious = stats.get("malicious", 0)
@@ -63,10 +59,8 @@ def _fmt(raw: str | Dict[str, Any]) -> str:
                 return "Unknown"
         except (KeyError, TypeError) as e:
             log.debug(f"VirusTotal parsing error: {e}")
-            return "Parse error"
-
-    # OTX format
-    if "pulse_info" in str(data):
+            return "Parse error"    # OTX format
+    if "pulse_info" in data:
         try:
             c = data["pulse_info"]["count"]
             return "Clean" if c == 0 else f"Malicious – {c} OTX pulse{'s' if c!=1 else ''}"
@@ -75,7 +69,7 @@ def _fmt(raw: str | Dict[str, Any]) -> str:
             return "Parse error"
 
     # ThreatFox format
-    if "query_status" in str(data):
+    if "query_status" in data:
         if data.get("query_status") == "no_result":
             return "Clean"
         elif data.get("query_status") == "ok" and data.get("data"):
@@ -195,7 +189,9 @@ async def process_file(file_path: str, out: str, rate: bool, selected_providers:
                     print()  # Empty line for readability
                     
                     # Add small delay to avoid overwhelming providers
-                    await asyncio.sleep(0.1)
+                    rate_limited = {"virustotal", "greynoise", "pulsedive", "shodan"}
+                    if rate or (selected_providers and any(p in rate_limited for p in selected_providers)):
+                        await asyncio.sleep(0.1)
                     
                 except Exception as e:
                     log.error(f"Failed to scan IOC '{ioc_data['value']}': {e}")
@@ -275,8 +271,8 @@ def main() -> None:
                     res = await scan_single(s, a.value, a.rate, selected_providers)
                     print(f"\nIOC  : {res['value']}  ({res['type']})")
                     print("-"*48)
-                    for k, raw in res["results"].items():
-                        print(f"{k:<12}: {_fmt(raw)}")
+                    for k, provider_data in res["results"].items():
+                        print(f"{k:<12}: {_fmt(provider_data)}")
                     print()
             except Exception as e:
                 log.error(f"Single IOC scan failed: {e}")

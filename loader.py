@@ -334,7 +334,7 @@ def load_iocs(file_path: Path) -> List[Dict[str, str]]:
     return iocs
 
 
-def _load_with_pandas(file_path: Path) -> List[Dict[str, str]]:
+def _load_with_pandas(file_path: Path, ioc_columns: List[str] = None) -> List[Dict[str, str]]:
     """Load structured data using pandas."""
     if not PANDAS_AVAILABLE:
         return []
@@ -342,12 +342,12 @@ def _load_with_pandas(file_path: Path) -> List[Dict[str, str]]:
     try:
         # Try different pandas readers based on extension
         if file_path.suffix.lower() == '.xlsx':
-            df = pd.read_excel(file_path, engine='openpyxl')
+            df = pd.read_excel(file_path, engine='openpyxl', usecols=ioc_columns or None)
         elif file_path.suffix.lower() == '.tsv':
-            df = pd.read_csv(file_path, sep='\t', engine='python', comment='#')
+            df = pd.read_csv(file_path, sep='\t', engine='python', comment='#', usecols=ioc_columns or None)
         else:  # .csv or other
             # Try auto-detection of delimiter, skip comment lines
-            df = pd.read_csv(file_path, sep=None, engine='python', comment='#')
+            df = pd.read_csv(file_path, sep=None, engine='python', comment='#', usecols=ioc_columns or None)
         
         return _extract_iocs_from_dataframe(df)
                         

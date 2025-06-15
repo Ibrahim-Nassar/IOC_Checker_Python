@@ -4,10 +4,11 @@ Tests all IOC detection, validation, and normalization functions.
 """
 import pytest
 from ioc_types import (
-    detect_ioc_type, VALIDATORS, _normalise, _strip_port, _extract_ip,
+    detect_ioc_type, VALIDATORS, _normalise, _strip_port,
     _valid_ip, _valid_domain, _valid_url, _valid_hash, _valid_email,
     _valid_file, _valid_reg, _valid_wallet, _valid_asn, _valid_attck
 )
+from providers import _extract_ip
 
 
 class TestIOCDetection:

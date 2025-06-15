@@ -13,6 +13,8 @@ from dotenv import load_dotenv
 # Load .env that sits next to the project's .py files
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
+__all__ = ['_extract_ip']
+
 # Import IP extraction function
 def _extract_ip(v: str) -> str:
     """Extract IP from IP:port format."""

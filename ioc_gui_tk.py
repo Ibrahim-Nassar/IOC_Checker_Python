@@ -696,7 +696,7 @@ class IOCCheckerGUI:
                 
                 elif line_stripped.startswith("Processing IOC:"):
                     self.processed_iocs += 1
-                    if self.total_iocs > 0:
+                    if self.total_iocs and self.processed_iocs % 10 == 0:
                         self._update_progress(self.processed_iocs, self.total_iocs, "Processing IOCs")
                         
         except Exception as e:

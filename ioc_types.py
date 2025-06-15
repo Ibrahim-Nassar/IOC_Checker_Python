@@ -5,6 +5,7 @@ Only top-level docstrings are used, no inline comments.
 from __future__ import annotations
 import re, ipaddress, urllib.parse
 from typing import Callable, Dict, Tuple
+from .providers import _extract_ip
 
 _RE_DOMAIN  = re.compile(r"^(?=.{4,253}$)[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
                          r"(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\.[A-Za-z]{2,}$")
@@ -16,6 +17,13 @@ _RE_REG     = re.compile(r"^HK[LMCU]")
 _RE_WALLET  = re.compile(r"^0x[a-fA-F0-9]{40}$")
 _RE_ASN     = re.compile(r"^AS\d+$")
 _RE_ATTCK   = re.compile(r"^T\d{4}(?:\.\d{3})?$")
+
+# Pre-compiled date/time regex patterns for faster validation
+_DT_REGEXES = [
+    re.compile(r'^\d{1,2}/\d{1,2}/\d{2,4}(\s+\d{1,2}:\d{2}(:\d{2})?(\s*[AaPp][Mm])?)?$'),
+    re.compile(r'^\d{4}-\d{2}-\d{2}(\s+\d{1,2}:\d{2}(:\d{2})?)?$'),
+    re.compile(r'^\d{1,2}:\d{2}(:\d{2})?(\s*[AaPp][Mm])?$')
+]
 
 # Common valid TLDs (subset of most common ones)
 _VALID_TLDS = {
@@ -47,12 +55,8 @@ def _strip_port(v:str)->str:
     if v.count(':')==1: return v.split(':')[0]
     return v
 
-def _extract_ip(v: str) -> str:
-    """Extract IP from IP:port format. Alias for _strip_port for compatibility."""
-    return _strip_port(v)
-
 def _valid_ip(v:str)->bool:
-    try: ipaddress.ip_address(_strip_port(v)); return True
+    try: ipaddress.ip_address(_extract_ip(v)); return True
     except ValueError: return False
 def _valid_domain(v:str)->bool:  
     # First check basic regex pattern
@@ -96,11 +100,7 @@ def _valid_file(v:str)->bool:
     v_stripped = v.strip()
     
     # Exclude common date/time formats that contain slashes
-    if re.match(r'^\d{1,2}/\d{1,2}/\d{2,4}(\s+\d{1,2}:\d{2}(:\d{2})?(\s*[AaPp][Mm])?)?$', v_stripped):
-        return False
-    if re.match(r'^\d{4}-\d{2}-\d{2}(\s+\d{1,2}:\d{2}(:\d{2})?)?$', v_stripped):
-        return False
-    if re.match(r'^\d{1,2}:\d{2}(:\d{2})?(\s*[AaPp][Mm])?$', v_stripped):
+    if any(pat.match(v_stripped) for pat in _DT_REGEXES):
         return False
     
     # Check if it matches file path pattern
