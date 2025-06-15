@@ -515,8 +515,7 @@ class IOCCheckerGUI:
         
         for t, c in COLORS.items():
             self.out.tag_configure(t, foreground=c)
-        
-        # Status bar
+          # Status bar
         st = ttk.Frame(main)
         st.grid(row=5, column=0, sticky="ew")
         
@@ -528,7 +527,8 @@ class IOCCheckerGUI:
         checkbox.grid(row=0, column=5, padx=20)
         
         self.root.bind("<Return>", self._start_single)
-          # Setup drag and drop
+        
+        # Setup drag and drop
         self._setup_drag_drop()
 
     def _update_provider_status(self):
