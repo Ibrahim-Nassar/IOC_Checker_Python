@@ -91,7 +91,7 @@ class ProviderDlg:
         
         # Default configuration
         default_config = {provider: False for provider in AVAILABLE_PROVIDERS.keys()}
-        default_config.update({'abuseipdb': True, 'otx': True, 'threatfox': True})  # Always-on providers
+        default_config.update({'abuseipdb': True, 'otx': True})  # Default always-on providers
         
         if config:
             default_config.update(config)
@@ -102,15 +102,18 @@ class ProviderDlg:
         """Build the provider selection dialog."""
         self.dialog = tk.Toplevel(self.parent)
         self.dialog.title("Select Threat Intelligence Providers")
-        self.dialog.geometry("600x550")
+        self.dialog.geometry("600x600")
         self.dialog.resizable(False, False)
         self.dialog.transient(self.parent)
         self.dialog.grab_set()
         
+        # Handle window close button (X) to cancel
+        self.dialog.protocol("WM_DELETE_WINDOW", self._cancel)
+        
         # Center the dialog
         self.dialog.update_idletasks()
         x = (self.dialog.winfo_screenwidth() // 2) - (600 // 2)
-        y = (self.dialog.winfo_screenheight() // 2) - (550 // 2)
+        y = (self.dialog.winfo_screenheight() // 2) - (600 // 2)
         self.dialog.geometry(f"+{x}+{y}")
         
         main_frame = ttk.Frame(self.dialog, padding=20)
@@ -140,9 +143,21 @@ class ProviderDlg:
         filter_combo.pack(side='left', padx=(10, 0))
         filter_combo.bind('<<ComboboxSelected>>', self._on_filter_change)
         
-        # Create a frame for the provider list
-        self.list_frame = ttk.Frame(main_frame)
-        self.list_frame.pack(fill='both', expand=True, pady=(0, 15))
+        # Create a scrollable frame for the provider list
+        canvas = tk.Canvas(main_frame, height=300)
+        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
+        self.list_frame = ttk.Frame(canvas)
+        
+        self.list_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=self.list_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.pack(side="left", fill="both", expand=True, pady=(0, 15))
+        scrollbar.pack(side="right", fill="y", pady=(0, 15))
         
         # Build provider widgets
         self._build_provider_widgets(config)
@@ -156,14 +171,15 @@ class ProviderDlg:
         ttk.Button(button_frame, text="Defaults", command=self._select_defaults).pack(side='left', padx=(10, 0))
         
         ttk.Button(button_frame, text="Cancel", command=self._cancel).pack(side='right')
-        ttk.Button(button_frame, text="OK", command=self.ok).pack(side='right', padx=(0, 10))
+        self.ok_button = ttk.Button(button_frame, text="Save", command=self.ok)
+        self.ok_button.pack(side='right', padx=(0, 10))
         
         # Bind Enter and Escape
         self.dialog.bind('<Return>', lambda e: self.ok())
         self.dialog.bind('<Escape>', lambda e: self._cancel())
         
-        # Focus on OK button
-        self.dialog.focus_set()
+        # Focus on Save button
+        self.ok_button.focus_set()
     
     def _build_provider_widgets(self, config):
         """Build the provider widgets."""
@@ -171,10 +187,24 @@ class ProviderDlg:
         for widget in self.list_frame.winfo_children():
             widget.destroy()
         
-        # Get provider compatibility info
-        from providers import ALWAYS_ON, RATE_LIMIT
-        all_providers = list(ALWAYS_ON) + list(RATE_LIMIT)
-        provider_capabilities = {p.name: p.ioc_kinds for p in all_providers}
+        # Get provider compatibility info with fallback
+        try:
+            from providers import ALWAYS_ON, RATE_LIMIT
+            all_providers = list(ALWAYS_ON) + list(RATE_LIMIT)
+            provider_capabilities = {p.name: p.ioc_kinds for p in all_providers}
+        except ImportError:
+            # Fallback if providers module not available
+            provider_capabilities = {
+                'abuseipdb': ('ip',),
+                'otx': ('ip', 'domain', 'url', 'hash'),
+                'threatfox': ('ip', 'domain', 'url', 'hash'),
+                'urlhaus': ('url', 'domain'),
+                'malwarebazaar': ('hash',),
+                'virustotal': ('ip', 'domain', 'url', 'hash'),
+                'greynoise': ('ip',),
+                'pulsedive': ('ip', 'domain', 'url', 'hash'),
+                'shodan': ('ip',)
+            }
         
         # Filter providers based on selected IOC type
         selected_ioc_type = self.filter_var.get()
@@ -186,12 +216,15 @@ class ProviderDlg:
                 if selected_ioc_type not in provider_ioc_kinds:
                     continue
             
-            # Create or get existing variable
+            # Create or get existing variable - preserve existing state
             if provider not in self.vars:
                 var = tk.BooleanVar(value=config.get(provider, False))
                 self.vars[provider] = var
             else:
-                var = self.vars[provider]
+                # Update value but keep existing variable to preserve state
+                self.vars[provider].set(config.get(provider, self.vars[provider].get()))
+            
+            var = self.vars[provider]
             
             # Main provider frame
             provider_frame = ttk.Frame(self.list_frame)
@@ -223,8 +256,25 @@ class ProviderDlg:
     
     def _on_filter_change(self, event=None):
         """Handle filter dropdown change."""
+        # Preserve current selections when filtering
         config = {provider: var.get() for provider, var in self.vars.items()}
         self._build_provider_widgets(config)
+    
+    def _select_all(self):
+        """Select all providers."""
+        for var in self.vars.values():
+            var.set(True)
+    
+    def _select_none(self):
+        """Deselect all providers."""
+        for var in self.vars.values():
+            var.set(False)
+    
+    def _select_defaults(self):
+        """Set providers to default configuration."""
+        defaults = ['abuseipdb', 'otx']
+        for provider, var in self.vars.items():
+            var.set(provider in defaults)
     
     def ok(self):
         """Accept the provider selection and update always-on list."""
@@ -336,12 +386,12 @@ class IOCCheckerGUI:
         self.show_only = tk.BooleanVar(value=True)
         self.no_virustotal = tk.BooleanVar(value=False)
         self.stats = {'threat': 0, 'clean': 0, 'error': 0, 'total': 0}
-        
-        # Provider configuration - only OTX and AbuseIPDB enabled by default
-        self.provider_config = {
-            'abuseipdb': True, 'otx': True, 'threatfox': False, 'urlhaus': False, 'malwarebazaar': False,
-            'virustotal': False, 'greynoise': False, 'pulsedive': False, 'shodan': False
-        }
+          # Provider configuration - initialize with always-on providers enabled
+        self.provider_config = {provider: False for provider in AVAILABLE_PROVIDERS.keys()}
+        # Enable always-on providers by default
+        for provider in DEFAULT_ALWAYS_ON:
+            if provider in self.provider_config:
+                self.provider_config[provider] = True
         
         # Progress tracking
         self.total_iocs = 0
@@ -466,8 +516,7 @@ class IOCCheckerGUI:
         checkbox.grid(row=0, column=5, padx=20)
         
         self.root.bind("<Return>", self._start_single)
-        
-        # Setup drag and drop
+          # Setup drag and drop
         self._setup_drag_drop()
 
     def _update_provider_status(self):
@@ -483,6 +532,10 @@ class IOCCheckerGUI:
         
         if dialog.result is not None:
             self.provider_config.update(dialog.result)
+            # Update always-on providers to ensure they remain enabled
+            for provider in DEFAULT_ALWAYS_ON:
+                if provider in self.provider_config:
+                    self.provider_config[provider] = True
             self._update_provider_status()
             self._log("info", f"Provider configuration updated: {sum(self.provider_config.values())} providers enabled")
 
