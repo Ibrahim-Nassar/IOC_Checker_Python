@@ -108,8 +108,15 @@ async def _query(session: aiohttp.ClientSession, typ: str, val: str, rate: bool,
         results = {}
         for p, o in zip([q for q in provs if typ in q.ioc_kinds], outs):
             if isinstance(o, Exception):
+                error_msg = str(o)
+                if "timeout" in error_msg.lower():
+                    error_msg = "timeout"
+                elif "connection" in error_msg.lower():
+                    error_msg = "connection failed"
+                elif "ssl" in error_msg.lower():
+                    error_msg = "ssl error"
                 log.warning(f"Provider {p.name} failed: {o}")
-                results[p.name] = f"error: {str(o)}"
+                results[p.name] = {"status": "error", "score": 0, "raw": f"error: {error_msg}"}
             else:
                 results[p.name] = o
         return results
@@ -127,7 +134,7 @@ async def scan_single(session: aiohttp.ClientSession, val: str, rate: bool, sele
             "results": await _query(session, typ, norm, rate, selected_providers)}
 
 # ────────── format-agnostic file processing ──────────
-async def process_file(file_path: str, out: str, rate: bool, selected_providers: list = None) -> None:
+async def process_file(file_path: str, out: str, rate: bool, selected_providers: list = None, limit: int = None) -> None:
     """Process any supported file format with format-agnostic IOC discovery."""
     inpath, outpath = pathlib.Path(file_path), pathlib.Path(out)
     
@@ -136,7 +143,13 @@ async def process_file(file_path: str, out: str, rate: bool, selected_providers:
         print(f"Loading IOCs from {file_path}...")
         iocs = load_iocs(inpath)
         
-        print(f"Found {len(iocs)} IOCs to process:")
+        # Apply limit if specified
+        total_iocs = len(iocs)
+        if limit and limit < total_iocs:
+            iocs = iocs[:limit]
+            print(f"Limited to processing {limit} of {total_iocs} IOCs")
+        
+        print(f"Processing {len(iocs)} IOCs:")
         type_counts = {}
         for ioc in iocs:
             ioc_type = ioc['type']
@@ -148,18 +161,18 @@ async def process_file(file_path: str, out: str, rate: bool, selected_providers:
     except (FileNotFoundError, ValueError) as e:
         log.error(f"Failed to load IOCs: {e}")
         print(f"Error: {e}")
-        return
-
-    # Process IOCs
+        return    # Process IOCs
     results = []
     try:
         conn = aiohttp.TCPConnector(limit_per_host=10, ssl=False, force_close=True)
+        # Set reasonable timeouts for all requests
+        timeout = aiohttp.ClientTimeout(total=30, connect=10)
     except Exception as e:
         log.error(f"Failed to create connector: {e}")
         return
     
     try:
-        async with aiohttp.ClientSession(connector=conn) as sess:
+        async with aiohttp.ClientSession(connector=conn, timeout=timeout) as sess:
             for idx, ioc_data in enumerate(iocs, 1):
                 try:
                     # Add progress output for GUI
@@ -180,6 +193,9 @@ async def process_file(file_path: str, out: str, rate: bool, selected_providers:
                             # Handle legacy string responses during transition
                             print(f"  {provider}: {provider_data}")
                     print()  # Empty line for readability
+                    
+                    # Add small delay to avoid overwhelming providers
+                    await asyncio.sleep(0.1)
                     
                 except Exception as e:
                     log.error(f"Failed to scan IOC '{ioc_data['value']}': {e}")
@@ -217,6 +233,7 @@ def main() -> None:
     ap.add_argument("--csv", help="Legacy CSV path (deprecated, use --file)")
     ap.add_argument("-o", "--out", default="results.csv", help="Output filename")
     ap.add_argument("--rate", action="store_true", help="Include rate-limited providers")
+    ap.add_argument("--limit", type=int, help="Limit number of IOCs to process (default: all)")
     
     # Individual provider selection
     ap.add_argument("--virustotal", action="store_true", help="Use VirusTotal")
@@ -245,16 +262,16 @@ def main() -> None:
             selected_providers.append("pulsedive")
         if a.shodan:
             selected_providers.append("shodan")
-        
-        # If no specific providers selected, use default behavior
+          # If no specific providers selected, use default behavior
         if not selected_providers:
             selected_providers = None
 
     if a.ioc_type and a.value:
         async def _run_single():
             conn = aiohttp.TCPConnector(limit_per_host=10, ssl=False, force_close=True)
+            timeout = aiohttp.ClientTimeout(total=30, connect=10)
             try:
-                async with aiohttp.ClientSession(connector=conn) as s:
+                async with aiohttp.ClientSession(connector=conn, timeout=timeout) as s:
                     res = await scan_single(s, a.value, a.rate, selected_providers)
                     print(f"\nIOC  : {res['value']}  ({res['type']})")
                     print("-"*48)
@@ -271,13 +288,11 @@ def main() -> None:
             log.info("Interrupted by user")
         except Exception as e:
             log.error(f"Async runtime error: {e}")
-        return
-
-    # Handle file input (new format-agnostic or legacy CSV)
+        return    # Handle file input (new format-agnostic or legacy CSV)
     input_file = a.file or a.csv
     if input_file:
         try:
-            asyncio.run(process_file(input_file, a.out, a.rate, selected_providers))
+            asyncio.run(process_file(input_file, a.out, a.rate, selected_providers, a.limit))
         except KeyboardInterrupt:
             log.info("File processing interrupted by user")
         except Exception as e:

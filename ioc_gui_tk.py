@@ -404,10 +404,13 @@ class IOCCheckerGUI:
         for provider in DEFAULT_ALWAYS_ON:
             if provider in self.provider_config:
                 self.provider_config[provider] = True
-        
-        # Progress tracking
+          # Progress tracking
         self.total_iocs = 0
         self.processed_iocs = 0
+        
+        # IOC limit tracking
+        self.total_file_iocs = 0
+        self.ioc_limit = tk.IntVar(value=0)  # 0 means all IOCs
         
         self._build_ui()
         self._poll()
@@ -485,10 +488,26 @@ class IOCCheckerGUI:
                   command=self._configure_providers).pack(side='left')
         ttk.Button(config_frame, text="Proxy", style='Provider.TButton',
                   command=self._configure_proxy).pack(side='left', padx=(5, 0))
-        
-        # Format info label
+          # Format info label
         self.format_label = ttk.Label(batch, text="Supported: CSV, TSV, XLSX, TXT", foreground="gray")
         self.format_label.grid(row=1, column=0, columnspan=5, sticky="w", pady=(5,0))
+        
+        # IOC limit slider (initially hidden)
+        self.limit_frame = ttk.Frame(batch)
+        self.limit_frame.grid(row=2, column=0, columnspan=5, sticky="ew", pady=(10,0))
+        self.limit_frame.columnconfigure(1, weight=1)
+        
+        ttk.Label(self.limit_frame, text="IOCs to process:").grid(row=0, column=0, sticky="w")
+        
+        self.limit_slider = ttk.Scale(self.limit_frame, from_=1, to=100, orient="horizontal",
+                                     variable=self.ioc_limit, command=self._on_limit_change)
+        self.limit_slider.grid(row=0, column=1, sticky="ew", padx=(10,0))
+        
+        self.limit_label = ttk.Label(self.limit_frame, text="All IOCs")
+        self.limit_label.grid(row=0, column=2, sticky="w", padx=(10,0))
+        
+        # Initially hide the limit frame
+        self.limit_frame.grid_remove()
         
         # Progress bar (initially hidden)
         self.progress_frame = ttk.Frame(main)
@@ -531,6 +550,14 @@ class IOCCheckerGUI:
         # Setup drag and drop
         self._setup_drag_drop()
 
+    def _on_limit_change(self, value):
+        """Handle slider value change."""
+        limit_value = int(float(value))
+        if limit_value >= self.total_file_iocs or limit_value == 0:
+            self.limit_label.config(text="All IOCs")
+        else:
+            self.limit_label.config(text=f"{limit_value} IOCs")
+    
     def _update_provider_status(self):
         """Update the provider status display."""
         enabled_count = sum(1 for enabled in self.provider_config.values() if enabled)
@@ -858,6 +885,18 @@ class IOCCheckerGUI:
             preview_text += f" (types: {', '.join(types)})"
         
         self.format_label.config(text=preview_text, foreground="green")
+        
+        # Setup slider for IOC count selection
+        self.total_file_iocs = count
+        if count > 1:
+            # Show the limit slider
+            self.limit_frame.grid()
+            self.limit_slider.config(to=count)
+            self.ioc_limit.set(count)  # Default to all IOCs
+            self.limit_label.config(text="All IOCs")
+        else:
+            # Hide slider for single IOC files
+            self.limit_frame.grid_remove()
 
     def _update_preview_error(self, error):
         """Update preview error on main thread."""
