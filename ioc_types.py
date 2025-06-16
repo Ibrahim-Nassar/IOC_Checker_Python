@@ -5,7 +5,7 @@ Only top-level docstrings are used, no inline comments.
 from __future__ import annotations
 import re, ipaddress, urllib.parse
 from typing import Callable, Dict, Tuple
-from .providers import _extract_ip
+from providers import _extract_ip
 
 _RE_DOMAIN  = re.compile(r"^(?=.{4,253}$)[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
                          r"(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\.[A-Za-z]{2,}$")
