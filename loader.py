@@ -334,7 +334,7 @@ def load_iocs(file_path: Path) -> List[Dict[str, str]]:
     return iocs
 
 
-def _load_with_pandas(file_path: Path, ioc_columns: List[str] = None) -> List[Dict[str, str]]:
+def _load_with_pandas(file_path: Path, ioc_columns: List[str] = None, max_rows: int = None) -> List[Dict[str, str]]:
     """Load structured data using pandas."""
     if not PANDAS_AVAILABLE:
         return []
@@ -342,31 +342,66 @@ def _load_with_pandas(file_path: Path, ioc_columns: List[str] = None) -> List[Di
     try:
         # Try different pandas readers based on extension
         if file_path.suffix.lower() == '.xlsx':
-            df = pd.read_excel(file_path, engine='openpyxl', usecols=ioc_columns or None)
+            df = pd.read_excel(file_path, engine='openpyxl', usecols=ioc_columns or None, nrows=max_rows)
         elif file_path.suffix.lower() == '.tsv':
-            df = pd.read_csv(file_path, sep='\t', engine='python', comment='#', usecols=ioc_columns or None)
+            df = pd.read_csv(file_path, sep='\t', engine='python', comment='#', 
+                           usecols=ioc_columns or None, encoding='utf-8', errors='ignore', nrows=max_rows)
         else:  # .csv or other
             # Try auto-detection of delimiter, skip comment lines
-            df = pd.read_csv(file_path, sep=None, engine='python', comment='#', usecols=ioc_columns or None)
+            df = pd.read_csv(file_path, sep=None, engine='python', comment='#', 
+                           usecols=ioc_columns or None, encoding='utf-8', errors='ignore', nrows=max_rows)
         
         return _extract_iocs_from_dataframe(df)
                         
+    except UnicodeDecodeError:
+        # Try with different encodings if UTF-8 fails
+        for encoding in ['latin-1', 'cp1252', 'iso-8859-1']:
+            try:
+                if file_path.suffix.lower() == '.tsv':
+                    df = pd.read_csv(file_path, sep='\t', engine='python', comment='#', 
+                                   usecols=ioc_columns or None, encoding=encoding, errors='ignore', nrows=max_rows)
+                else:
+                    df = pd.read_csv(file_path, sep=None, engine='python', comment='#', 
+                                   usecols=ioc_columns or None, encoding=encoding, errors='ignore', nrows=max_rows)
+                return _extract_iocs_from_dataframe(df)
+            except:
+                continue
+        # If all encodings fail, fall back to text loading
+        log.warning(f"Pandas loading with various encodings failed, falling back to text extraction")
+        return _load_as_text(file_path, max_lines=max_rows)
+        
     except Exception as e:
         log.warning(f"Pandas loading failed: {e}")
         return []
 
 
-def _load_as_text(file_path: Path) -> List[Dict[str, str]]:
+def _load_as_text(file_path: Path, max_lines: int = None) -> List[Dict[str, str]]:
     """Load file as plain text and extract IOCs."""
     try:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-            content = f.read()
+            if max_lines:
+                lines = []
+                for i, line in enumerate(f):
+                    if i >= max_lines:
+                        break
+                    lines.append(line)
+                content = ''.join(lines)
+            else:
+                content = f.read()
     except UnicodeDecodeError:
         # Try different encodings
         for encoding in ['latin-1', 'cp1252', 'ascii']:
             try:
                 with open(file_path, 'r', encoding=encoding, errors='ignore') as f:
-                    content = f.read()
+                    if max_lines:
+                        lines = []
+                        for i, line in enumerate(f):
+                            if i >= max_lines:
+                                break
+                            lines.append(line)
+                        content = ''.join(lines)
+                    else:
+                        content = f.read()
                 break
             except:
                 continue

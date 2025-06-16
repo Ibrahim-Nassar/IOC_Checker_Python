@@ -29,6 +29,40 @@ COLORS = {
     'default':'#000000'
 }
 
+# Dark mode color scheme
+DARK_COLORS = {
+    'threat': '#FF6666',
+    'clean':  '#44DD44', 
+    'warning':'#FFB347',
+    'error':  '#FF4444',
+    'info':   '#66B3FF',
+    'default':'#FFFFFF'
+}
+
+# Theme configurations
+THEMES = {
+    'light': {
+        'bg': '#FFFFFF',
+        'fg': '#000000',
+        'select_bg': '#0078D4',
+        'select_fg': '#FFFFFF',
+        'entry_bg': '#FFFFFF',
+        'entry_fg': '#000000',
+        'button_bg': '#F0F0F0',
+        'colors': COLORS
+    },
+    'dark': {
+        'bg': '#2B2B2B',
+        'fg': '#FFFFFF', 
+        'select_bg': '#404040',
+        'select_fg': '#FFFFFF',
+        'entry_bg': '#404040',
+        'entry_fg': '#FFFFFF',
+        'button_bg': '#404040',
+        'colors': DARK_COLORS
+    }
+}
+
 # Provider configuration
 AVAILABLE_PROVIDERS = {
     'abuseipdb': 'AbuseIPDB (IP reputation)',
@@ -46,18 +80,34 @@ AVAILABLE_PROVIDERS = {
 DEFAULT_ALWAYS_ON = ['abuseipdb', 'otx']
 
 def _classify(line: str) -> str:
+    # Enhanced classification for better output handling
     if ("🚨" in line or 
         re.search(r"(Malicious|Suspicious):[1-9]", line) or 
-        "Found in" in line):
+        "Found in" in line or
+        "MALICIOUS" in line.upper()):
         return "threat"
-    if any(t in line for t in ("✅", "Clean", "Not found", "Whitelisted")):
+    if any(t in line for t in ("✅", "Clean", "Not found", "Whitelisted", "completed")):
         return "clean"
-    if any(t in line for t in ("⚠️", "Suspicious", "Medium")):
+    if any(t in line for t in ("⚠️", "Suspicious", "Medium", "WARNING")):
         return "warning"
-    if "❌" in line or "ERROR" in line:
+    if ("❌" in line or "ERROR" in line or 
+        line.startswith("Processing IOC: ERROR") or
+        line.startswith("Result: ERROR") or
+        "Process error:" in line or
+        "Failed to process" in line):
         return "error"
-    if "ℹ️" in line or "INFO" in line:
+    if (any(t in line for t in ("ℹ️", "INFO", "🔢", "🔍", "💻", "📁", "🚀", "📂", "🎯")) or
+        line.startswith("===") or
+        "Command:" in line or
+        "Output will be saved" in line or
+        "Processing limit set" in line or
+        "Active providers:" in line):
         return "info"
+    # Handle IOC processing messages
+    if line.startswith("Processing IOC:") and "ERROR" not in line:
+        return "info"
+    if line.startswith("Result:") and "ERROR" not in line:
+        return "clean"
     return "default"
 
 def _should_show(line: str, only: bool) -> bool:
@@ -84,12 +134,12 @@ def _should_show(line: str, only: bool) -> bool:
 class ProviderDlg:
     """Provider selection dialog with checkboxes for each provider."""
     
-    def __init__(self, parent, config=None):
+    def __init__(self, parent, config=None, theme='light'):
         self.parent = parent
         self.result = None
         self.vars = {}
-        
-        # Default configuration
+        self.theme = theme
+          # Default configuration
         default_config = {provider: False for provider in AVAILABLE_PROVIDERS.keys()}
         default_config.update({'abuseipdb': True, 'otx': True})  # Default always-on providers
         
@@ -106,6 +156,10 @@ class ProviderDlg:
         self.dialog.resizable(False, False)
         self.dialog.transient(self.parent)
         self.dialog.grab_set()
+        
+        # Apply theme to dialog
+        theme = THEMES[self.theme]
+        self.dialog.configure(bg=theme['bg'])
         
         # Handle window close button (X) to cancel
         self.dialog.protocol("WM_DELETE_WINDOW", self._cancel)
@@ -146,9 +200,8 @@ class ProviderDlg:
         # Create a simple frame for the provider list (remove problematic scrolling)
         list_container = ttk.Frame(main_frame)
         list_container.pack(fill='both', expand=True, pady=(0, 15))
-        
-        # Add a canvas with scrollbar for the provider list
-        canvas = tk.Canvas(list_container, height=250)
+          # Add a canvas with scrollbar for the provider list
+        canvas = tk.Canvas(list_container, height=250, bg=theme['bg'], highlightthickness=0)
         scrollbar = ttk.Scrollbar(list_container, orient="vertical", command=canvas.yview)
         self.list_frame = ttk.Frame(canvas)
         
@@ -392,6 +445,11 @@ class IOCCheckerGUI:
         self.root = tk.Tk()
         self.root.title("IOC Checker - Advanced")
         self.root.geometry("1000x700")
+        
+        # Theme management
+        self.current_theme = 'light'
+        self.theme_var = tk.StringVar(value='light')
+        
         self.q = queue.Queue()
         self.running = False
         self.process = None  # Track the running process
@@ -478,9 +536,7 @@ class IOCCheckerGUI:
         ttk.Button(batch, text="Browse", command=self._browse).grid(row=0, column=2, padx=(5, 0))
         self.btn_batch = ttk.Button(batch, text="Start Processing", style='Act.TButton', 
                                    command=self._start_batch)
-        self.btn_batch.grid(row=0, column=3, padx=(5, 0))
-        
-        # Configuration buttons
+        self.btn_batch.grid(row=0, column=3, padx=(5, 0))        # Configuration buttons
         config_frame = ttk.Frame(batch)
         config_frame.grid(row=0, column=4, padx=(10, 0))
         
@@ -488,6 +544,9 @@ class IOCCheckerGUI:
                   command=self._configure_providers).pack(side='left')
         ttk.Button(config_frame, text="Proxy", style='Provider.TButton',
                   command=self._configure_proxy).pack(side='left', padx=(5, 0))
+        self.theme_button = ttk.Button(config_frame, text="🌙", style='Provider.TButton',
+                  command=self._toggle_theme)
+        self.theme_button.pack(side='left', padx=(5, 0))
           # Format info label
         self.format_label = ttk.Label(batch, text="Supported: CSV, TSV, XLSX, TXT", foreground="gray")
         self.format_label.grid(row=1, column=0, columnspan=5, sticky="w", pady=(5,0))
@@ -546,9 +605,150 @@ class IOCCheckerGUI:
         checkbox.grid(row=0, column=5, padx=20)
         
         self.root.bind("<Return>", self._start_single)
-        
-        # Setup drag and drop
+          # Setup drag and drop
         self._setup_drag_drop()
+        
+        # Apply initial theme
+        self._apply_theme()
+
+    def _apply_theme(self):
+        """Apply the current theme to all widgets."""
+        theme = THEMES[self.current_theme]
+        
+        # Configure root window
+        self.root.configure(bg=theme['bg'])
+          # Configure ttk styles for dark mode
+        style = ttk.Style()
+        if self.current_theme == 'dark':
+            style.theme_use('clam')  # Use clam theme as base for dark mode
+            
+            # Configure dark theme styles
+            style.configure('TFrame', background=theme['bg'], borderwidth=0)
+            style.configure('TLabel', background=theme['bg'], foreground=theme['fg'])
+            style.configure('TButton', background=theme['button_bg'], foreground=theme['fg'],
+                          borderwidth=1, focuscolor='none')
+            style.map('TButton', 
+                     background=[('active', '#505050'), ('pressed', '#606060')])
+            style.configure('TEntry', background=theme['entry_bg'], foreground=theme['entry_fg'], 
+                          fieldbackground=theme['entry_bg'], insertcolor=theme['fg'],
+                          borderwidth=1)
+            style.configure('TCombobox', background=theme['entry_bg'], foreground=theme['entry_fg'],
+                          fieldbackground=theme['entry_bg'], selectbackground=theme['select_bg'],
+                          borderwidth=1, arrowcolor=theme['fg'])
+            style.configure('TScale', background=theme['bg'], troughcolor=theme['entry_bg'],
+                          borderwidth=0, sliderthickness=20)
+            style.configure('TProgressbar', background=theme['select_bg'], 
+                          troughcolor=theme['entry_bg'], borderwidth=1)
+            style.configure('TCheckbutton', background=theme['bg'], foreground=theme['fg'],
+                          focuscolor='none')
+            style.map('TCheckbutton',
+                     background=[('active', theme['bg'])])
+            
+            # Configure special button styles
+            style.configure('Act.TButton', background='#0078D4', foreground='white',
+                          borderwidth=1, focuscolor='none')
+            style.map('Act.TButton',
+                     background=[('active', '#106EBE'), ('pressed', '#005A9E')])
+            style.configure('Provider.TButton', background=theme['button_bg'], foreground=theme['fg'],
+                          borderwidth=1, focuscolor='none')
+            style.map('Provider.TButton',
+                     background=[('active', '#505050'), ('pressed', '#606060')])
+            
+        else:
+            style.theme_use('winnative')  # Use native theme for light mode
+            style.configure('Act.TButton', background='#0078D4', foreground='white')
+            style.configure('Provider.TButton', background='#F0F0F0', foreground='black')
+            style.map('Act.TButton',
+                     background=[('active', '#106EBE'), ('pressed', '#005A9E')])
+            style.map('Provider.TButton',
+                     background=[('active', '#E0E0E0'), ('pressed', '#D0D0D0')])
+        
+        # Configure scrolled text widget
+        self.out.configure(bg=theme['bg'], fg=theme['fg'], 
+                          selectbackground=theme['select_bg'],
+                          selectforeground=theme['select_fg'],
+                          insertbackground=theme['fg'])
+        
+        # Update text tags with theme colors
+        for t, c in theme['colors'].items():
+            self.out.tag_configure(t, foreground=c)
+              # Configure stats labels
+        for label in self.lab_stats.values():
+            # ttk.Label doesn't support bg/fg directly - styling is handled by ttk.Style above
+            pass
+            
+        # Configure other labels (check if they're tk.Label or ttk.Label)
+        if hasattr(self, 'format_info'):
+            if isinstance(self.format_info, ttk.Label):
+                pass  # Styled by ttk.Style
+            else:
+                self.format_info.configure(bg=theme['bg'], fg=theme['fg'])
+        if hasattr(self, 'provider_status'):
+            if isinstance(self.provider_status, ttk.Label):
+                pass  # Styled by ttk.Style  
+            else:
+                self.provider_status.configure(bg=theme['bg'], fg=theme['fg'])
+        if hasattr(self, 'limit_label'):
+            if isinstance(self.limit_label, ttk.Label):
+                pass  # Styled by ttk.Style
+            else:
+                self.limit_label.configure(bg=theme['bg'], fg=theme['fg'])
+        if hasattr(self, 'progress_label'):
+            if isinstance(self.progress_label, ttk.Label):
+                pass  # Styled by ttk.Style
+            else:
+                self.progress_label.configure(bg=theme['bg'], fg=theme['fg'])
+            
+        # Configure all frames to match theme
+        for widget in self.root.winfo_children():
+            self._configure_widget_theme(widget, theme)
+    
+    def _configure_widget_theme(self, widget, theme):
+        """Recursively configure widget themes."""
+        widget_class = widget.winfo_class()
+        
+        if widget_class == 'Frame':
+            widget.configure(bg=theme['bg'])
+        elif widget_class == 'Label':
+            widget.configure(bg=theme['bg'], fg=theme['fg'])
+        elif widget_class == 'Button':
+            # Skip styled buttons
+            if not hasattr(widget, 'cget') or widget.cget('style') == '':
+                widget.configure(bg=theme['button_bg'], fg=theme['fg'])
+          # Recursively apply to children
+        for child in widget.winfo_children():
+            self._configure_widget_theme(child, theme)
+    
+    def _toggle_theme(self):
+        """Toggle between light and dark themes."""
+        self.current_theme = 'dark' if self.current_theme == 'light' else 'light'
+        self.theme_var.set(self.current_theme)
+        
+        # Update theme button text
+        self.theme_button.configure(text="☀️" if self.current_theme == 'dark' else "🌙")
+        
+        self._apply_theme()
+        
+        # Force refresh of all frames
+        for widget in self.root.winfo_children():
+            self._refresh_widget_theme(widget)
+    
+    def _refresh_widget_theme(self, widget):
+        """Recursively refresh theme for widget and its children."""
+        theme = THEMES[self.current_theme]
+        
+        try:
+            # Apply theme to frame-like widgets
+            if isinstance(widget, (ttk.Frame, tk.Frame)):
+                if isinstance(widget, tk.Frame):
+                    widget.configure(bg=theme['bg'])
+                
+            # Recursively refresh children
+            for child in widget.winfo_children():
+                self._refresh_widget_theme(child)
+                
+        except tk.TclError:
+            pass  # Ignore widgets that can't be configured
 
     def _on_limit_change(self, value):
         """Handle slider value change."""
@@ -566,7 +766,7 @@ class IOCCheckerGUI:
 
     def _configure_providers(self):
         """Open provider configuration dialog."""
-        dialog = ProviderDlg(self.root, self.provider_config.copy())
+        dialog = ProviderDlg(self.root, self.provider_config.copy(), self.current_theme)
         self.root.wait_window(dialog.dialog)
         
         if dialog.result is not None:
@@ -678,38 +878,65 @@ class IOCCheckerGUI:
 
     def _run_sub(self, cmd):
         try:
-            self._show_progress("Starting process...")
+            self._show_progress("🚀 Initializing IOC checker...")
             self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, 
-                                     stderr=subprocess.STDOUT, text=True)
+                                     stderr=subprocess.STDOUT, text=True, 
+                                     encoding='utf-8', errors='replace')
+            
             for line in self.process.stdout:
                 line_stripped = line.rstrip()
                 self.q.put((_classify(line_stripped), line_stripped))
                 
-                # Track progress for batch processing
-                if "Found" in line_stripped and "IOCs to process:" in line_stripped:
+                # Enhanced progress tracking with more detailed status updates
+                if "Loading IOCs from" in line_stripped:
+                    self._show_progress("📂 Loading and parsing file...")
+                elif "Found" in line_stripped and "IOCs to process:" in line_stripped:
                     try:
                         parts = line_stripped.split()
                         self.total_iocs = int(parts[1])
-                        self._update_progress(0, self.total_iocs, "Processing IOCs")
+                        self._update_progress(0, self.total_iocs, "🔍 Analyzing IOCs")
+                        self.q.put(("info", f"🎯 Ready to process {self.total_iocs} IOCs"))
                     except (ValueError, IndexError):
                         pass
-                
+                elif "Limited to processing" in line_stripped:
+                    self.q.put(("info", f"✂️ {line_stripped}"))
                 elif line_stripped.startswith("Processing IOC:"):
                     self.processed_iocs += 1
-                    if self.total_iocs and self.processed_iocs % 10 == 0:
-                        self._update_progress(self.processed_iocs, self.total_iocs, "Processing IOCs")
+                    # Extract IOC value for better progress display
+                    ioc_value = line_stripped.replace("Processing IOC: ", "").strip()
+                    if len(ioc_value) > 50:  # Truncate long IOCs for display
+                        ioc_display = ioc_value[:47] + "..."
+                    else:
+                        ioc_display = ioc_value
+                    
+                    if self.total_iocs and self.processed_iocs % 5 == 0:  # Update every 5 IOCs
+                        self._update_progress(self.processed_iocs, self.total_iocs, f"🔍 Analyzing: {ioc_display}")
+                elif "Progress: Processed" in line_stripped:
+                    # Handle batch progress updates
+                    try:
+                        parts = line_stripped.split()
+                        current = int(parts[2].split('/')[0])
+                        total = int(parts[2].split('/')[1])
+                        self._update_progress(current, total, "🔍 Analyzing IOCs")
+                    except (ValueError, IndexError):
+                        pass
+                elif "Writing results to" in line_stripped:
+                    self._show_progress("💾 Saving results...")
+                elif "completed" in line_stripped.lower():
+                    # Show final completion status
+                    self._show_progress("✅ Analysis completed!")
                         
         except Exception as e:
             self.q.put(("error", f"Process error: {str(e)}"))
         finally:
             self._hide_progress()
-            self.q.put(("info", "✓ completed"))
+            self.q.put(("info", "✅ Analysis completed!"))
 
     def _poll(self):
         while not self.q.empty():
             typ, msg = self.q.get_nowait()
             self._log(typ, msg)
-            if "✓ completed" in msg.lower():
+            if "✅ Analysis completed!" in msg or "✓ completed" in msg.lower():
                 self._reset_ui_state()
         self.root.after_idle(lambda: self.root.after(150, self._poll))
 
@@ -745,7 +972,8 @@ class IOCCheckerGUI:
         if not p or not os.path.exists(p):
             return
         
-        self._log("info", f"=== Batch {p} ===")
+        self._log("info", f"=== Starting batch processing of {p} ===")
+        self._log("info", f"📂 Analyzing file structure...")
         
         # Generate output filename based on input file location
         input_path = Path(p)
@@ -755,13 +983,27 @@ class IOCCheckerGUI:
         # Use format-agnostic approach with file flag and specify output
         cmd = [PYTHON, SCRIPT, "--file", p, "-o", str(output_path)]
         
+        # Add limit if slider is enabled and not set to max
+        if hasattr(self, 'limit_slider') and self.limit_frame.winfo_viewable():
+            limit_value = int(self.limit_slider.get())
+            if limit_value < self.total_file_iocs:
+                cmd.extend(["--limit", str(limit_value)])
+                self._log("info", f"🔢 Processing limit set to {limit_value} IOCs (of {self.total_file_iocs} available)")
+            else:
+                self._log("info", f"🔢 Processing all {self.total_file_iocs} IOCs")
+        
         # Add provider arguments based on user selection
         provider_args = self._build_provider_args()
         cmd.extend(provider_args)
         
+        # Log enabled providers
+        enabled_providers = [name for name, enabled in self.provider_config.items() if enabled]
+        self._log("info", f"🔍 Active providers: {', '.join(enabled_providers)}")
+        
         # Log the command and output path for debugging
-        self._log("info", f"Command: {' '.join(cmd)}")
-        self._log("info", f"Output will be saved to: {output_path}")
+        self._log("info", f"💻 Command: {' '.join(cmd)}")
+        self._log("info", f"📁 Output will be saved to: {output_path}")
+        self._log("info", f"🚀 Starting IOC analysis...")
         
         self.processed_iocs = 0
         self.total_iocs = 0
