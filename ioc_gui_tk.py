@@ -511,12 +511,12 @@ class IOCCheckerGUI:
         self.val = tk.Entry(inp, width=40)
         self.val.grid(row=0, column=3, sticky="ew", padx=5)
         inp.columnconfigure(3, weight=1)
-        
-        # Single IOC buttons
+          # Single IOC buttons
         btnf = ttk.Frame(inp)
         btnf.grid(row=0, column=4, padx=5)
-        self.btn_check = ttk.Button(btnf, text="Check", style='Act.TButton', 
-                                   command=self._start_single)
+        
+        self.btn_check = ttk.Button(btnf, text="Check", 
+                                    command=self._start_single)
         self.btn_check.pack(side=tk.LEFT)
         self.btn_stop = ttk.Button(btnf, text="Stop", style='Bad.TButton', 
                                   command=self._stop_processing, state='disabled')
@@ -534,9 +534,12 @@ class IOCCheckerGUI:
         batch.columnconfigure(1, weight=1)
         
         ttk.Button(batch, text="Browse", command=self._browse).grid(row=0, column=2, padx=(5, 0))
-        self.btn_batch = ttk.Button(batch, text="Start Processing", style='Act.TButton', 
-                                   command=self._start_batch)
-        self.btn_batch.grid(row=0, column=3, padx=(5, 0))        # Configuration buttons
+        
+        self.btn_batch = ttk.Button(batch, text="Start Processing", 
+                                    command=self._start_batch)
+        self.btn_batch.grid(row=0, column=3, padx=(5, 0))
+        
+        # Configuration buttons
         config_frame = ttk.Frame(batch)
         config_frame.grid(row=0, column=4, padx=(10, 0))
         
@@ -644,24 +647,30 @@ class IOCCheckerGUI:
             style.map('TCheckbutton',
                      background=[('active', theme['bg'])])
             
-            # Configure special button styles
-            style.configure('Act.TButton', background='#0078D4', foreground='white',
-                          borderwidth=1, focuscolor='none')
-            style.map('Act.TButton',
-                     background=[('active', '#106EBE'), ('pressed', '#005A9E')])
+            # Configure special button styles  
             style.configure('Provider.TButton', background=theme['button_bg'], foreground=theme['fg'],
                           borderwidth=1, focuscolor='none')
             style.map('Provider.TButton',
                      background=[('active', '#505050'), ('pressed', '#606060')])
             
         else:
-            style.theme_use('winnative')  # Use native theme for light mode
-            style.configure('Act.TButton', background='#0078D4', foreground='white')
-            style.configure('Provider.TButton', background='#F0F0F0', foreground='black')
-            style.map('Act.TButton',
-                     background=[('active', '#106EBE'), ('pressed', '#005A9E')])
+            style.theme_use('clam')  # Use clam theme for light mode too for better control
+            # Light mode button styling
+            style.configure('Provider.TButton', background='#F0F0F0', foreground='black',
+                          borderwidth=1, focuscolor='none', relief='raised')
             style.map('Provider.TButton',
-                     background=[('active', '#E0E0E0'), ('pressed', '#D0D0D0')])
+                     background=[('active', '#E0E0E0'), ('pressed', '#D0D0D0')],
+                     foreground=[('active', 'black'), ('pressed', 'black')])
+            
+            # Configure other light theme elements
+            style.configure('TFrame', background=theme['bg'])
+            style.configure('TLabel', background=theme['bg'], foreground=theme['fg'])
+            style.configure('TButton', background=theme['button_bg'], foreground=theme['fg'])
+            style.configure('TEntry', background=theme['entry_bg'], foreground=theme['entry_fg'], 
+                          fieldbackground=theme['entry_bg'], insertcolor=theme['fg'])
+            style.configure('TCombobox', background=theme['entry_bg'], foreground=theme['entry_fg'],
+                          fieldbackground=theme['entry_bg'])
+            style.configure('TCheckbutton', background=theme['bg'], foreground=theme['fg'])
         
         # Configure scrolled text widget
         self.out.configure(bg=theme['bg'], fg=theme['fg'], 
