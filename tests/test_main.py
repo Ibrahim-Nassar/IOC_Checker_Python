@@ -3,12 +3,8 @@ Comprehensive tests for ioc_checker.py module.
 Tests CLI functionality, CSV processing, and main application logic.
 """
 import pytest
-import asyncio
-import json
-import csv
 import argparse
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
-import aiohttp
+from unittest.mock import AsyncMock, Mock, patch
 from ioc_checker import (
     _fmt, _query, scan_single, process_csv, main
 )

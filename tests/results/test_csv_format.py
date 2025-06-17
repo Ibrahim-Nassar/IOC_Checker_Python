@@ -4,7 +4,6 @@ Test clean CSV format output with structured status columns.
 import pytest
 import tempfile
 import os
-from unittest.mock import Mock, AsyncMock, patch
 from pathlib import Path
 import csv
 

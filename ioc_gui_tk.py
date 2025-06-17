@@ -7,15 +7,13 @@ Tkinter GUI for IOC checking with format-agnostic input, live progress bar, and 
 import tkinter as tk
 import ttkbootstrap as tb
 from ttkbootstrap.constants import *
-from tkinter import scrolledtext, filedialog, messagebox
+from tkinter import filedialog, messagebox
 import subprocess
 import sys
-import threading
 import queue
 import os
 import re
 import logging
-from pathlib import Path
 from loader import load_iocs
 
 # ttkbootstrap is now the primary theming system
@@ -869,10 +867,9 @@ class IOCCheckerGUI:
         # Status bar
         st = tb.Frame(main)
         st.grid(row=5, column=0, sticky="ew")
-        
         self.lab_stats = {k: tb.Label(st, text=f"{k}:0") for k in self.stats}
-        for i, (k, l) in enumerate(self.lab_stats.items()):
-            l.grid(row=0, column=i, padx=8, sticky="w")
+        for i, (k, label) in enumerate(self.lab_stats.items()):
+            label.grid(row=0, column=i, padx=8, sticky="w")
         
         checkbox = tb.Checkbutton(st, text="Show only threats", variable=self.show_only)
         checkbox.grid(row=0, column=5, padx=20)
@@ -1099,289 +1096,32 @@ class IOCCheckerGUI:
             else:
                 self._log("info", "Proxy disabled")
 
-    def _build_provider_args(self):
-        """Build provider arguments for command line based on user selection."""
-        # Get list of all selected providers
-        selected_providers = []
-        for provider, enabled in self.provider_config.items():
-            if enabled:
-                selected_providers.append(provider)
-        
-        # Log which providers are being used for debugging
-        self._log("info", f"Selected providers: {', '.join(selected_providers)}")
-        
-        # Use the new --providers argument to pass exact list
-        args = ["--providers", ",".join(selected_providers)]
-        
-        # Add rate limiting if any rate-limited providers are enabled
-        rate_limited_providers = ['virustotal', 'greynoise', 'pulsedive', 'shodan']
-        if any(provider in selected_providers for provider in rate_limited_providers):
-            args.append("--rate")
-        
-        return args
+    def _show_about(self):
+        """Show About dialog."""
+        about_text = """IOC Checker v1.0
 
-    def _classify(self, line: str) -> str:
-        if ("🚨" in line or 
-            re.search(r"(Malicious|Suspicious):[1-9]", line) or 
-            "Found in" in line):
-            return "threat"
-        if any(t in line for t in ("✅", "Clean", "Not found", "Whitelisted")):
-            return "clean"
-        if any(t in line for t in ("⚠️", "Suspicious", "Medium")):
-            return "warning"
-        if "❌" in line or "ERROR" in line:
-            return "error"
-        if "ℹ️" in line or "INFO" in line:
-            return "info"
-        return "default"
+A comprehensive tool for checking Indicators of Compromise (IOCs) 
+against multiple threat intelligence providers.
 
-    def _should_show(self, line: str, only: bool) -> bool:
-        """Return True if the line should appear given the 'only threats' setting."""
-        if not only:
-            return True
+Features:
+• Single IOC lookups
+• Batch CSV/TXT processing  
+• Multiple provider support
+• Modern GUI interface
+• Export to CSV
 
-        # Always keep high-level progress / errors
-        if any(k in line.lower() for k in ("starting", "completed", "error")):
-            return True
+Supported IOC Types:
+IP addresses, Domains, URLs, File hashes, 
+Email addresses, Registry keys, Crypto wallets, 
+ASN numbers, ATT&CK techniques
 
-        # Explicit threat markers
-        if ("🚨" in line or 
-            "⚠️" in line or 
-            "Found in" in line):
-            return True
-
-        # Malicious / Suspicious counts > 0
-        if re.search(r"(Malicious|Suspicious):[1-9]", line):
-            return True
-
-        return False
-
-    def _show_progress(self, message):
-        """Show progress bar with message."""
-        self.progress_label.config(text=message)
-        self.progress_frame.grid()
-        self.progress.config(mode="indeterminate")
-        self.progress.start(10)
-
-    def _update_progress(self, processed, total, message=""):
-        """Update progress bar with determinate progress."""
-        self.root.after(0, self._update_progress_ui, processed, total, message)
-
-    def _update_progress_ui(self, processed, total, message):
-        """Update progress UI on main thread."""
-        if total > 0:
-            self.progress.stop()
-            self.progress.config(mode="determinate", maximum=total, value=processed)
-            percent = int((processed / total) * 100)
-            self.progress_label.config(text=f"{message} ({processed}/{total} - {percent}%)")
-        else:
-            self.progress_label.config(text=message)
-
-    def _hide_progress(self):
-        """Hide progress bar."""
-        self.root.after(0, self._hide_progress_ui)
-
-    def _hide_progress_ui(self):
-        """Hide progress UI on main thread."""
-        self.progress.stop()
-        self.progress_frame.grid_remove()
-
-    def _run_sub(self, cmd):
-        try:
-            self._show_progress("🚀 Initializing IOC checker...")
-            self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, 
-                                     stderr=subprocess.STDOUT, text=True, 
-                                     encoding='utf-8', errors='replace')
-            
-            for line in self.process.stdout:
-                line_stripped = line.rstrip()
-                self.q.put((_classify(line_stripped), line_stripped))
-                
-                # Enhanced progress tracking with more detailed status updates
-                if "Loading IOCs from" in line_stripped:
-                    self._show_progress("📂 Loading and parsing file...")
-                elif "Found" in line_stripped and "IOCs to process:" in line_stripped:
-                    try:
-                        parts = line_stripped.split()
-                        self.total_iocs = int(parts[1])
-                        self._update_progress(0, self.total_iocs, "🔍 Analyzing IOCs")
-                        self.q.put(("info", f"🎯 Ready to process {self.total_iocs} IOCs"))
-                    except (ValueError, IndexError):
-                        pass
-                elif "Limited to processing" in line_stripped:
-                    self.q.put(("info", f"✂️ {line_stripped}"))
-                elif line_stripped.startswith("Processing IOC:"):
-                    self.processed_iocs += 1
-                    # Extract IOC value for better progress display
-                    ioc_value = line_stripped.replace("Processing IOC: ", "").strip()
-                    if len(ioc_value) > 50:  # Truncate long IOCs for display
-                        ioc_display = ioc_value[:47] + "..."
-                    else:
-                        ioc_display = ioc_value
-                    
-                    if self.total_iocs and self.processed_iocs % 5 == 0:  # Update every 5 IOCs
-                        self._update_progress(self.processed_iocs, self.total_iocs, f"🔍 Analyzing: {ioc_display}")
-                elif "Progress: Processed" in line_stripped:
-                    # Handle batch progress updates
-                    try:
-                        parts = line_stripped.split()
-                        current = int(parts[2].split('/')[0])
-                        total = int(parts[2].split('/')[1])
-                        self._update_progress(current, total, "🔍 Analyzing IOCs")
-                    except (ValueError, IndexError):
-                        pass
-                elif "Writing results to" in line_stripped:
-                    self._show_progress("💾 Saving results...")
-                elif "completed" in line_stripped.lower():
-                    # Show final completion status
-                    self._show_progress("✅ Analysis completed!")
-                        
-        except Exception as e:
-            self.q.put(("error", f"Process error: {str(e)}"))
-        finally:
-            self._hide_progress()
-            self.q.put(("info", "✅ Analysis completed!"))
-
-    def _poll(self):
-        while not self.q.empty():
-            typ, msg = self.q.get_nowait()
-            self._log(typ, msg)
-            if "✅ Analysis completed!" in msg or "✓ completed" in msg.lower():
-                self._reset_ui_state()
-        self.root.after_idle(lambda: self.root.after(150, self._poll))
-
-    def _start_single(self, event=None):
-        """Start single IOC check with enhanced UI feedback."""
-        if self.is_processing:
-            return
-            
-        ioc_type = self.type_cb.get()
-        ioc_value = self.val.get().strip()
-        
-        if not ioc_value or ioc_value == "Enter IOC value...":
-            messagebox.showwarning("Input Required", "Please enter an IOC value")
-            return
-            
-        self._toggle_processing_state(True)
-        self.total_iocs = 1
-        self.processed_iocs = 0
-        
-        # Clear previous results
-        self.out.delete(1.0, tk.END)
-        self.stats = {'threat': 0, 'clean': 0, 'error': 0, 'total': 0}
-        self._update_stats_display()
-        
-        # Start processing
-        self._run_ioc_check([ioc_value], [ioc_type])
-    
-    def _start_batch(self):
-        """Start batch processing with enhanced feedback."""
-        if self.is_processing:
-            return
-            
-        filename = self.file_var.get()
-        if not filename:
-            messagebox.showwarning("File Required", "Please select a file")
-            return
-            
-        self._toggle_processing_state(True)
-        
-        # Determine limit
-        limit = int(self.ioc_limit.get()) if self.ioc_limit.get() > 0 else None
+© 2025 IOC Checker Project"""
         
         try:
-            iocs, detected_type = load_iocs(filename, max_rows=limit)
-            self.total_iocs = len(iocs)
-            self.processed_iocs = 0
-            
-            # Clear previous results
-            self.out.delete(1.0, tk.END)
-            self.stats = {'threat': 0, 'clean': 0, 'error': 0, 'total': 0}
-            self._update_stats_display()
-            
-            # Start processing
-            ioc_values = [ioc['value'] for ioc in iocs]
-            ioc_types = [ioc['type'] for ioc in iocs]
-            self._run_ioc_check(ioc_values, ioc_types, batch=True)
-            
+            messagebox.showinfo("About IOC Checker", about_text)
         except Exception as e:
-            self._toggle_processing_state(False)
-            messagebox.showerror("Processing Error", f"Could not process file: {e}")
-    
-    def _run_ioc_check(self, ioc_values, ioc_types, batch=False):
-        """Run IOC check subprocess with enhanced monitoring."""
-        def run_subprocess():
-            try:
-                # Build command
-                cmd = [sys.executable, "ioc_checker.py"]
-                
-                if batch:
-                    cmd.extend(["--file", self.file_var.get()])
-                    if self.ioc_limit.get() > 0:
-                        cmd.extend(["--limit", str(self.ioc_limit.get())])
-                else:
-                    cmd.extend(["--type", ioc_types[0], "--value", ioc_values[0]])
-                
-                # Add provider configuration
-                enabled_providers = [p for p, enabled in self.provider_config.items() if enabled]
-                if enabled_providers:
-                    cmd.extend(["--providers"] + enabled_providers)
-                
-                # Start subprocess
-                self.proc = subprocess.Popen(
-                    cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    text=True, bufsize=1, universal_newlines=True
-                )
-                
-                # Read output
-                for line in self.proc.stdout:
-                    self.q.put(line.strip())
-                
-                self.proc.wait()
-                
-            except Exception as e:
-                self.q.put(f"Process error: {e}")
-            finally:
-                self.q.put("✅ Processing completed")
-        
-        threading.Thread(target=run_subprocess, daemon=True).start()
-    
-    def _stop_processing(self):
-        """Stop current processing with cleanup."""
-        if self.proc:
-            try:
-                self.proc.terminate()
-                self.proc.wait(timeout=5)
-            except:
-                self.proc.kill()
-            finally:
-                self.proc = None
-        
-        self._toggle_processing_state(False)
-        self.out.insert(tk.END, "\n❌ Processing stopped by user\n", 'error')
-        self.out.see(tk.END)
-    
-    def _configure_providers(self):
-        """Open provider configuration dialog."""
-        dialog = ProviderDlg(self.root, self.provider_config.copy(), self.current_theme)
-        result = dialog.result
-        if result:
-            self.provider_config = result
-            self._update_provider_status()
-    
-    def _configure_proxy(self):
-        """Open proxy configuration dialog (placeholder)."""
-        messagebox.showinfo("Proxy Configuration", 
-                          "Proxy configuration dialog will be implemented here.\n\n"
-                          "This feature allows configuring HTTP/HTTPS proxies "
-                          "for threat intelligence provider requests.")
-    
-    def _update_provider_status(self):
-        """Update provider status display."""
-        enabled_count = sum(1 for enabled in self.provider_config.values() if enabled)
-        total_count = len(self.provider_config)
-        self.provider_status.configure(text=f"Providers: {enabled_count}/{total_count} enabled")
-    
+            self._log("error", f"Failed to show about dialog: {e}")
+
     def run(self):
         """Start the GUI application."""
         self.root.mainloop()
@@ -1526,4 +1266,202 @@ class IOCCheckerGUI:
             self.progress.grid_remove()  # Hide progress bar
             self._log("✅ Processing complete.", "clean")
 
-    # ...existing code for other methods...
+    def _start_single(self, *args):
+        """Start single IOC lookup."""
+        if self.is_processing:
+            return
+            
+        ioc_value = self.val.get().strip()
+        ioc_type = self.type_cb.get()
+        
+        if not ioc_value:
+            messagebox.showerror("Input", "Enter an IOC value")
+            return
+            
+        self._log("info", f"=== {ioc_type}: {ioc_value} ===")
+        
+        # Build command for single IOC lookup
+        cmd = [PYTHON, SCRIPT, ioc_type, ioc_value]
+        
+        # Add provider flags based on configuration
+        providers = [p for p, enabled in self.provider_config.items() if enabled]
+        if providers:
+            cmd.extend(["--providers", ",".join(providers)])
+            
+        self._toggle_processing_state(True)
+        self._start_subprocess(cmd)
+
+    def _stop_processing(self):
+        """Stop current processing."""
+        if self.proc:
+            try:
+                self.proc.terminate()
+                self.proc.wait(timeout=5)
+            except:
+                self.proc.kill()
+            finally:
+                self.proc = None
+                self._toggle_processing_state(False)
+                self._log("warning", "Processing stopped by user")
+
+    def _clear(self):
+        """Clear the output display."""
+        if hasattr(self, 'out'):
+            self.out.delete('1.0', 'end')
+        
+        # Reset statistics
+        self.stats = {'total': 0, 'threat': 0, 'clean': 0, 'error': 0}
+        if hasattr(self, 'lab_stats'):
+            for k, v in self.stats.items():
+                if k in self.lab_stats:
+                    self.lab_stats[k].configure(text=f"{k}: {v}")
+
+    def _start_batch(self):
+        """Start batch file processing."""
+        if self.is_processing:
+            return
+            
+        file_path = self.file_var.get().strip()
+        
+        if not file_path:
+            messagebox.showerror("File", "Select a CSV/TXT/XLSX file")
+            return
+            
+        if not os.path.exists(file_path):
+            messagebox.showerror("File", "File not found")
+            return
+            
+        self._log("info", f"=== Batch processing: {file_path} ===")
+        
+        # Build command for batch processing
+        cmd = [PYTHON, SCRIPT, "--file", file_path]
+        
+        # Add output file
+        output_file = file_path.replace('.csv', '_results.csv').replace('.txt', '_results.csv').replace('.xlsx', '_results.csv')
+        cmd.extend(["-o", output_file])
+        
+        # Add provider flags based on configuration
+        providers = [p for p, enabled in self.provider_config.items() if enabled]
+        if providers:
+            cmd.extend(["--providers", ",".join(providers)])
+            
+        # Add IOC limit if set
+        if self.ioc_limit.get() > 0:
+            cmd.extend(["--limit", str(self.ioc_limit.get())])
+            
+        self._toggle_processing_state(True)
+        self._start_subprocess(cmd)
+
+    def _start_subprocess(self, cmd):
+        """Start subprocess with the given command."""
+        try:
+            self.proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                universal_newlines=True
+            )
+            self._log("info", f"Command: {' '.join(cmd)}")
+        except Exception as e:
+            self._log("error", f"Failed to start subprocess: {e}")
+            self._toggle_processing_state(False)
+
+    def _poll_queue(self):
+        """Poll subprocess output and update GUI."""
+        try:
+            if self.proc:
+                # Read available output
+                while True:
+                    line = self.proc.stdout.readline()
+                    if not line:
+                        break
+                    line = line.strip()
+                    if line:
+                        self._parse_and_log_output(line)
+                
+                # Check if process is done
+                if self.proc.poll() is not None:
+                    # Process finished
+                    self.proc = None
+                    self._toggle_processing_state(False)
+                    
+        except Exception as e:
+            self._log("error", f"Polling error: {e}")
+            if self.proc:
+                self.proc = None
+                self._toggle_processing_state(False)
+        
+        # Schedule next poll
+        self.root.after(100, self._poll_queue)
+
+    def _parse_and_log_output(self, line):
+        """Parse subprocess output and log with appropriate formatting."""
+        line = line.strip()
+        if not line:
+            return
+            
+        # Classify the output for proper styling
+        if "error" in line.lower() or "failed" in line.lower():
+            log_type = "error"
+            self.stats['error'] += 1
+        elif "malicious" in line.lower() or "threat" in line.lower():
+            log_type = "threat"
+            self.stats['threat'] += 1
+        elif "clean" in line.lower() or "safe" in line.lower():
+            log_type = "clean"
+            self.stats['clean'] += 1
+        else:
+            log_type = "info"
+            
+        self.stats['total'] += 1
+        self._log(line, log_type)
+        
+        # Update stats display
+        if hasattr(self, 'lab_stats'):
+            for k, v in self.stats.items():
+                if k in self.lab_stats:
+                    self.lab_stats[k].configure(text=f"{k}: {v}")
+
+    def _log(self, message, msg_type="info"):
+        """Log message to output with appropriate styling."""
+        if hasattr(self, 'out'):
+            if hasattr(self, 'show_only') and self.show_only.get():
+                # Only show threats and errors
+                if msg_type not in ['threat', 'error']:
+                    return
+                    
+            # Add timestamp and format message
+            timestamp = ""  # We can add timestamps if needed
+            formatted_msg = f"{timestamp}{message}\n"
+            
+            # Insert with appropriate tag for styling
+            self.out.insert('end', formatted_msg, msg_type)
+            self.out.see('end')
+
+    # ...existing code...
+
+
+
+def main():
+    """Main entry point for the IOC Checker GUI application."""
+    try:
+        # Create and run the GUI application
+        app = IOCCheckerGUI()
+        app.run()
+    except Exception as e:
+        # If GUI fails to start, show error message
+        try:
+            import tkinter as tk
+            from tkinter import messagebox
+            root = tk.Tk()
+            root.withdraw()  # Hide the main window
+            messagebox.showerror("IOC Checker Error", f"Failed to start GUI application:\n{str(e)}")
+        except:
+            # If even basic tkinter fails, print to console
+            print(f"Error starting IOC Checker GUI: {e}")
+            print("Please check that all required dependencies are installed.")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()

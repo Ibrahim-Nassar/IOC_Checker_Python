@@ -1,11 +1,6 @@
 """
 Test clean CSV report generation functionality.
 """
-import pytest
-import tempfile
-import os
-from pathlib import Path
-from unittest.mock import patch
 
 from reports import write_clean_csv, _calculate_overall_risk, WRITERS
 

@@ -5,7 +5,6 @@ Focus on covering the GUI logic without complex UI interactions.
 import pytest
 import os
 from unittest.mock import Mock, patch, MagicMock
-import tempfile
 
 
 def test_gui_module_import():
@@ -74,7 +73,7 @@ def test_provider_dialog_basic():
         config = {"virustotal": True, "greynoise": False}
         
         with patch('ioc_gui_tk.tk.Toplevel'):
-            with patch('ioc_gui_tk.tk.BooleanVar') as mock_var:
+            with patch('ioc_gui_tk.tk.BooleanVar'):
                 with patch('ioc_gui_tk.ttk.Checkbutton'):
                     with patch('ioc_gui_tk.ttk.Button'):
                         dialog = ProviderDlg(master, config)

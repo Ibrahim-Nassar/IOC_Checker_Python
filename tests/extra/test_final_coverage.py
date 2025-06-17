@@ -28,7 +28,6 @@ class TestUncoveredPaths:
     
     def test_ioc_checker_missing_csv_column(self):
         """Test CSV processing with missing column."""
-        from ioc_checker import process_csv
         
         # Create a CSV with missing 'ioc' column
         with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
@@ -131,7 +130,7 @@ class TestMainFunctionErrorPaths:
         
         with patch.object(sys, 'argv', ['ioc_checker.py', 'ip', '8.8.8.8']):
             with patch('asyncio.run', side_effect=KeyboardInterrupt):
-                with patch('logging.info') as mock_log:
+                with patch('logging.info'):
                     try:
                         main()
                     except SystemExit:
@@ -190,7 +189,7 @@ class TestGUICompleteScenarios:
         }):
             from ioc_gui_tk import ProviderDlg
             
-            master = Mock()
+            Mock()
             config = {"virustotal": True, "greynoise": False, "pulsedive": True, "shodan": False}
             
             # Create dialog manually to avoid Tkinter issues

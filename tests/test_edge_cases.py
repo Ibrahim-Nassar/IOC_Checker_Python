@@ -3,11 +3,7 @@ Additional comprehensive tests to reach ≥90% coverage.
 Tests edge cases, error conditions, and uncovered code paths.
 """
 import pytest
-import asyncio
-import json
-import tempfile
-import pathlib
-from unittest.mock import AsyncMock, Mock, patch, mock_open
+from unittest.mock import AsyncMock, Mock, patch
 import aiohttp
 from ioc_checker import _fmt, _query, scan_single, process_csv, main
 
@@ -251,7 +247,6 @@ class TestMainFunctionEdgeCases:
                 delattr(mock_stdout, 'reconfigure')
             
             # Import should handle this gracefully
-            import ioc_checker  # This should not raise
     
     def test_main_with_specific_provider_combinations(self):
         """Test main with different provider flag combinations."""

@@ -2,7 +2,6 @@
 Minimal working tests for GUI module to reach 90% coverage target.
 Focus only on essential uncovered lines.
 """
-import pytest
 from unittest.mock import patch, Mock, MagicMock
 
 
@@ -31,7 +30,7 @@ def test_minimal_gui_coverage():
         ioc_gui_tk.theme(root)
     
     # Test dialog classes
-    master = Mock()
+    Mock()
     cfg = {"virustotal": True, "greynoise": False}
     
     # Create ProviderDlg manually

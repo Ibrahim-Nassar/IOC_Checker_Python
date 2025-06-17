@@ -5,10 +5,9 @@ import pytest
 import asyncio
 import tempfile
 import pathlib
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 import aiohttp
 from aiohttp import web
-import json
 
 
 @pytest.fixture(scope="session")

@@ -5,7 +5,6 @@ import pytest
 import tempfile
 import os
 from unittest.mock import patch, Mock
-from pathlib import Path
 
 
 def test_csv_command_construction():

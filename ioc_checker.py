@@ -6,7 +6,12 @@ Async IOC checker with robust UTF-8 handling and comprehensive error management.
 • Cross-platform UTF-8 output
 """
 from __future__ import annotations
-import argparse, asyncio, json, logging, pathlib, sys, aiohttp
+import argparse
+import asyncio
+import logging
+import pathlib
+import sys
+import aiohttp
 from typing import Dict, Any
 from aiohttp_client_cache import CachedSession, SQLiteBackend
 from ioc_types import detect_ioc_type
@@ -243,7 +248,23 @@ def main() -> None:
     # Allow explicit provider list from GUI
     ap.add_argument("--providers", help="Comma-separated list of providers to use")
     
+    # GUI mode
+    ap.add_argument("--gui", action="store_true", help="Launch GUI interface")
+    
     a = ap.parse_args()
+    
+    # Handle GUI mode
+    if a.gui:
+        try:
+            import ioc_gui_tk
+            ioc_gui_tk.main()
+            return
+        except ImportError:
+            print("Error: GUI dependencies not available. Please install required packages.")
+            sys.exit(1)
+        except Exception as e:
+            print(f"Error starting GUI: {e}")
+            sys.exit(1)
     
     # Build selected providers list
     selected_providers = []

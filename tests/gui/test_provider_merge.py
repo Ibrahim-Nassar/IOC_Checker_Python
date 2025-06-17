@@ -149,10 +149,10 @@ def test_provider_dialog_functionality():
     dialog.result = {k: v.get() for k, v in dialog.vars.items()}
     
     assert dialog.result == initial_cfg
-    assert dialog.result["greynoise"] == True
-    assert dialog.result["shodan"] == True
-    assert dialog.result["virustotal"] == False
-    assert dialog.result["pulsedive"] == False
+    assert dialog.result["greynoise"]
+    assert dialog.result["shodan"]
+    assert not dialog.result["virustotal"]
+    assert not dialog.result["pulsedive"]
 
 
 if __name__ == "__main__":

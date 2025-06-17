@@ -4,11 +4,6 @@ Test GUI progress bar functionality.
 import pytest
 import tkinter as tk
 from tkinter import ttk
-import threading
-import time
-from unittest.mock import Mock, patch, MagicMock
-import tempfile
-from pathlib import Path
 
 # Import GUI components
 from ioc_gui_tk import IOCCheckerGUI

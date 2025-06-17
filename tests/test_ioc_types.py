@@ -2,7 +2,6 @@
 Comprehensive tests for ioc_types.py module.
 Tests all IOC detection, validation, and normalization functions.
 """
-import pytest
 from ioc_types import (
     detect_ioc_type, VALIDATORS, _normalise, _strip_port,
     _valid_ip, _valid_domain, _valid_url, _valid_hash, _valid_email,

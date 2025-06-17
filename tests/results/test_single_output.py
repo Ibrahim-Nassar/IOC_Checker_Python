@@ -101,7 +101,7 @@ def test_cli_csv_processing_single_output():
                 mock_always.__iter__.return_value = [mock_provider]
                 
                 # Run CLI command
-                result = subprocess.run([
+                subprocess.run([
                     "python", "ioc_checker.py", "--csv", input_csv, "-o", output_csv
                 ], capture_output=True, text=True, cwd="d:/KAS/python_scripts/Python_IOC_Checker")
         
@@ -140,8 +140,7 @@ def test_gui_csv_processing_single_output():
         f.write("ioc\ndomain.com\n")
         input_csv = f.name
     
-    output_base = input_csv.replace('.csv', '_results')
-    output_csv = f"{output_base}.csv"
+    input_csv.replace('.csv', '_results')
     
     try:
         # Mock GUI subprocess call

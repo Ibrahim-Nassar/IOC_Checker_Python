@@ -94,11 +94,6 @@ def _is_likely_ioc(ioc_type: str, value: str) -> bool:
     # Filter out reference URLs that are not malicious IOCs
     if ioc_type == "url":
         # Common non-malicious reference domains
-        safe_domains = [
-            'urlscan.io', 'virustotal.com', 'app.any.run', 'bazaar.abuse.ch',
-            'tria.ge', 'infosec.exchange', 'github.com', 'twitter.com',
-            'drive.google.com', 'onedrive.live.com'
-        ]
         
         # Don't filter these out completely, but note they might be references
         # For now, keep them as they could still be useful
@@ -452,7 +447,7 @@ def _load_with_pandas(file_path: Path, ioc_columns: List[str] = None, max_rows: 
             except:
                 continue
         # If all encodings fail, fall back to text loading
-        log.warning(f"Pandas loading with various encodings failed, falling back to text extraction")
+        log.warning("Pandas loading with various encodings failed, falling back to text extraction")
         return _load_as_text(file_path, max_lines=max_rows)
         
     except Exception as e:

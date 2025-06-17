@@ -3,12 +3,8 @@ Test GUI module components and functionality.
 Covers Tkinter GUI, dialog boxes, and subprocess handling.
 """
 import pytest
-import tkinter as tk
 from unittest.mock import patch, Mock, MagicMock
-import subprocess
 import os
-from pathlib import Path
-import tempfile
 
 # Mock tkinter for headless testing
 with patch.dict('sys.modules', {'tkinter': MagicMock(), 'tkinter.ttk': MagicMock(), 'tkinter.filedialog': MagicMock(), 'tkinter.messagebox': MagicMock(), 'tkinter.font': MagicMock()}):
@@ -51,7 +47,7 @@ class TestProviderDialog:
         test_config = {"virustotal": True, "greynoise": False}
         
         with patch('ioc_gui_tk.tk.Toplevel'):
-            with patch('ioc_gui_tk.tk.BooleanVar') as mock_var:
+            with patch('ioc_gui_tk.tk.BooleanVar'):
                 with patch('ioc_gui_tk.ttk.Checkbutton'):
                     with patch('ioc_gui_tk.ttk.Button'):
                         dialog = ProviderDlg(mock_master, test_config)
@@ -94,7 +90,7 @@ class TestProxyDialog:
                 with patch('ioc_gui_tk.ttk.Entry'):
                     with patch('ioc_gui_tk.ttk.Button'):
                         with patch('os.environ.get', return_value="http://proxy:8080"):
-                            dialog = ProxyDlg(mock_master)
+                            ProxyDlg(mock_master)
                             mock_var.assert_called_with(value="http://proxy:8080")
     
     def test_proxy_dialog_ok_with_proxy(self):
@@ -170,7 +166,7 @@ class TestMainApp:
                                             with patch('ioc_gui_tk.tk.StringVar'):
                                                 with patch('ioc_gui_tk.tk.BooleanVar'):
                                                     with patch.object(App, 'after'):
-                                                        app = App()
+                                                        App()
                                                         
                                                         mock_combo.assert_called()
     
@@ -217,8 +213,8 @@ class TestMainApp:
                             with patch('ioc_gui_tk.ProviderDlg', return_value=mock_dialog):
                                 app.providers()
                                 
-                                assert app.cfg["virustotal"] == True
-                                assert app.cfg["greynoise"] == False
+                                assert app.cfg["virustotal"]
+                                assert not app.cfg["greynoise"]
     
     def test_app_providers_config_cancelled(self):
         """Test provider configuration when cancelled."""
@@ -436,11 +432,10 @@ class TestGUIIntegration:
             with patch('ioc_gui_tk.theme'):
                 with patch.object(App, '_build'):
                     with patch.object(App, 'after'):
-                        with patch.object(App, 'mainloop') as mock_mainloop:
-                            with patch('ioc_gui_tk.log.error') as mock_log:
+                        with patch.object(App, 'mainloop'):
+                            with patch('ioc_gui_tk.log.error'):
                                 # Test normal execution
-                                with patch('ioc_gui_tk.App', return_value=Mock()) as mock_app_class:
-                                    mock_app = mock_app_class.return_value
+                                with patch('ioc_gui_tk.App', return_value=Mock()):
                                     
                                     # Simulate running the GUI module
                                     exec("if __name__ == '__main__': pass")
@@ -452,8 +447,8 @@ class TestGUIIntegration:
                 with patch.object(App, '_build'):
                     with patch.object(App, 'after'):
                         with patch.object(App, 'mainloop', side_effect=Exception("GUI error")):
-                            with patch('ioc_gui_tk.log.error') as mock_log:
-                                with patch('builtins.print') as mock_print:
+                            with patch('ioc_gui_tk.log.error'):
+                                with patch('builtins.print'):
                                     try:
                                         app = App()
                                         app.mainloop()

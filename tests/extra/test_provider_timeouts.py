@@ -6,7 +6,6 @@ import pytest
 import asyncio
 import aiohttp
 from unittest.mock import patch, Mock, AsyncMock
-import json
 
 from providers import AbuseIPDB, VirusTotal, OTX, ThreatFox, GreyNoise, Pulsedive, Shodan
 
@@ -310,7 +309,7 @@ class TestProviderSpecificErrors:
         
         session = Mock()
         # Should not be called since IP provider doesn't support domains
-        result = await provider.query(session, "email", "test@example.com")
+        await provider.query(session, "email", "test@example.com")
         # This test depends on how the provider handles unsupported types
         # For now, we expect it to try anyway and likely fail
 

@@ -3,14 +3,9 @@ Test CLI edge cases and argument parsing scenarios.
 Covers command-line interface error conditions, argument validation, and edge cases.
 """
 import pytest
-import sys
-from unittest.mock import patch, Mock
-from pathlib import Path
-import tempfile
-import os
+from unittest.mock import patch
 
 from ioc_checker import main
-import argparse
 
 
 class TestCLIEdgeCases:

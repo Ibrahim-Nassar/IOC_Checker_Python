@@ -3,7 +3,9 @@ Clean CSV report writer with structured IOC analysis.
 • Single CSV output only • Clear status columns • UTF-8 encoding
 """
 from __future__ import annotations
-import csv, pathlib, logging
+import csv
+import pathlib
+import logging
 from typing import List, Dict, Any
 
 log = logging.getLogger("reports")

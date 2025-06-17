@@ -6,8 +6,7 @@ import tempfile
 import os
 import time
 import subprocess
-from unittest.mock import patch, Mock, MagicMock
-from pathlib import Path
+from unittest.mock import Mock
 
 
 def test_csv_integration_shows_results():

@@ -6,7 +6,7 @@ import pytest
 import asyncio
 import aiohttp
 import datetime
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import patch
 from providers import (
     TokenBucket, Provider, AbuseIPDB, OTX, ThreatFox, URLHaus, 
     MalwareBazaar, VirusTotal, GreyNoise, Pulsedive, Shodan,

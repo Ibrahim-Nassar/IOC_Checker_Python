@@ -5,15 +5,12 @@ Covers provider errors, network timeouts, malformed data, and system failures.
 import pytest
 import asyncio
 import aiohttp
-import json
 from unittest.mock import patch, Mock, AsyncMock
-from pathlib import Path
 import tempfile
 import os
 
 from ioc_checker import _fmt, _query, scan_single, process_csv, main
-from providers import AbuseIPDB, VirusTotal, OTX, ThreatFox
-import ioc_types
+from providers import AbuseIPDB, VirusTotal
 
 
 class TestErrorFormatting:
