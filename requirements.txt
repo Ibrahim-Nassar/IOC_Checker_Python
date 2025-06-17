@@ -3,3 +3,4 @@ pandas
 openpyxl
 pyinstaller
 python-dotenv
+ttkbootstrap

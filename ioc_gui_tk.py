@@ -2,6 +2,7 @@
 """
 Tkinter GUI for IOC checking with format-agnostic input, live progress bar, and provider selection.
 • Drag & Drop • Format detection • Real-time progress • Provider selection dialog • Subprocess integration
+• Menu-based settings • Dark/Light theme toggle • Enhanced visual hierarchy
 """
 import tkinter as tk
 from tkinter import ttk, scrolledtext, filedialog, messagebox
@@ -14,6 +15,14 @@ import re
 import logging
 from pathlib import Path
 from loader import load_iocs
+
+# Try to import ttkbootstrap for enhanced theming
+try:
+    import ttkbootstrap as ttk_bs
+    from ttkbootstrap.constants import *
+    TTKBOOTSTRAP_AVAILABLE = True
+except ImportError:
+    TTKBOOTSTRAP_AVAILABLE = False
 
 log = logging.getLogger("gui")
 
@@ -60,6 +69,48 @@ THEMES = {
         'entry_fg': '#FFFFFF',
         'button_bg': '#404040',
         'colors': DARK_COLORS
+    }
+}
+
+# Enhanced color schemes
+ENHANCED_THEMES = {
+    'light': {
+        'bg': '#FFFFFF',
+        'fg': '#000000',
+        'select_bg': '#0078D4',
+        'select_fg': '#FFFFFF',
+        'entry_bg': '#FFFFFF',
+        'entry_fg': '#000000',
+        'button_bg': '#F0F0F0',
+        'primary_button': '#0078D4',
+        'danger_button': '#D13438',
+        'colors': {
+            'threat': '#D13438',
+            'clean': '#107C10',
+            'warning': '#FF8C00',
+            'error': '#D13438',
+            'info': '#0078D4',
+            'default': '#000000'
+        }
+    },
+    'dark': {
+        'bg': '#2B2B2B',
+        'fg': '#FFFFFF',
+        'select_bg': '#404040',
+        'select_fg': '#FFFFFF',
+        'entry_bg': '#404040',
+        'entry_fg': '#FFFFFF',
+        'button_bg': '#404040',
+        'primary_button': '#0078D4',
+        'danger_button': '#FF6B6B',
+        'colors': {
+            'threat': '#FF6B6B',
+            'clean': '#51CF66',
+            'warning': '#FFD43B',
+            'error': '#FF6B6B',
+            'info': '#74C0FC',
+            'default': '#FFFFFF'
+        }
     }
 }
 
@@ -440,72 +491,290 @@ class ProxyDlg:
         self.result = None
         self.dialog.destroy()
 
-class IOCCheckerGUI:
+class DarkModeManager:
+    """Manages dark/light theme detection and application."""
+    
     def __init__(self):
+        self.current_theme = self._detect_system_theme()
+    
+    def _detect_system_theme(self):
+        """Detect system dark mode preference."""
+        try:
+            if sys.platform == "win32":
+                import winreg
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, 
+                                   r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
+                value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+                return "dark" if value == 0 else "light"
+        except:
+            pass
+        return "light"  # Default fallback
+    
+    def toggle_theme(self):
+        """Toggle between light and dark themes."""
+        self.current_theme = "dark" if self.current_theme == "light" else "light"
+        return self.current_theme
+
+class TooltipManager:
+    """Simple tooltip implementation for widgets."""
+    
+    @staticmethod
+    def add_tooltip(widget, text):
+        """Add tooltip to widget."""
+        def on_enter(event):
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
+            tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
+            label = tk.Label(tooltip, text=text, background="lightyellow", 
+                           relief="solid", borderwidth=1, font=("TkDefaultFont", 8))
+            label.pack()
+            widget.tooltip = tooltip
+        
+        def on_leave(event):
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
+        
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
+
+class IOCCheckerGUI:
+    """Enhanced IOC Checker GUI with menu system and modern styling."""
+    
+    def __init__(self):
+        self.dark_mode_mgr = DarkModeManager()
+        self.current_theme = self.dark_mode_mgr.current_theme
+        
+        # Application state
+        self.proc = None
+        self.q = queue.Queue()
+        self.stats = {'total': 0, 'threat': 0, 'clean': 0, 'error': 0}
+        self.provider_config = {p: False for p in AVAILABLE_PROVIDERS.keys()}
+        self.provider_config.update({'abuseipdb': True, 'otx': True})
+        self.proxy_config = {}
+        self.is_processing = False
+        
+        # UI state
+        self.show_only = tk.BooleanVar(value=True)
+        self.file_var = tk.StringVar()
+        self.ioc_limit = tk.IntVar(value=0)
+        self.total_iocs = 0
+        self.processed_iocs = 0
+        self.total_file_iocs = 0
+        
+        # Create main window
         self.root = tk.Tk()
         self.root.title("IOC Checker - Advanced")
         self.root.geometry("1000x700")
+        self.root.minsize(800, 600)
         
-        # Theme management
-        self.current_theme = 'light'
-        self.theme_var = tk.StringVar(value='light')
+        # Initialize styling
+        self._setup_styles()
         
-        self.q = queue.Queue()
-        self.running = False
-        self.process = None  # Track the running process
-        self.show_only = tk.BooleanVar(value=True)
-        self.no_virustotal = tk.BooleanVar(value=False)
-        self.stats = {'threat': 0, 'clean': 0, 'error': 0, 'total': 0}
-          # Provider configuration - initialize with always-on providers enabled
-        self.provider_config = {provider: False for provider in AVAILABLE_PROVIDERS.keys()}
-        # Enable always-on providers by default
-        for provider in DEFAULT_ALWAYS_ON:
-            if provider in self.provider_config:
-                self.provider_config[provider] = True
-          # Progress tracking
-        self.total_iocs = 0
-        self.processed_iocs = 0
+        # Create menu system
+        self._create_menu()
         
-        # IOC limit tracking
-        self.total_file_iocs = 0
-        self.ioc_limit = tk.IntVar(value=0)  # 0 means all IOCs
-        
+        # Build main UI
         self._build_ui()
-        self._poll()
-
-    def _build_ui(self):
-        s = ttk.Style()
-        s.configure('Act.TButton', padding=(10, 4))
-        s.configure('Bad.TButton', foreground='red')
-        s.configure('Provider.TButton', foreground='blue')
         
-        main = ttk.Frame(self.root, padding=15)
+        # Setup drag and drop
+        self._setup_drag_drop()
+        
+        # Apply initial theme
+        self._apply_theme()
+        
+        # Start queue polling
+        self._poll_queue()
+    
+    def _setup_styles(self):
+        """Setup enhanced ttk styles."""
+        self.style = ttk.Style()
+        
+        if TTKBOOTSTRAP_AVAILABLE:
+            self.style.theme_use('litera')
+        else:
+            self.style.theme_use('clam')
+        
+        # Configure custom styles
+        self.style.configure('Primary.TButton', 
+                           background='#0078D4', foreground='white',
+                           borderwidth=1, focuscolor='none')
+        self.style.map('Primary.TButton',
+                      background=[('active', '#106EBE'), ('pressed', '#005A9E')])
+        
+        self.style.configure('Danger.TButton',
+                           background='#D13438', foreground='white', 
+                           borderwidth=1, focuscolor='none')
+        self.style.map('Danger.TButton',
+                      background=[('active', '#B71C1C'), ('pressed', '#8B0000')])
+        
+        # Progress bar with text
+        self.style.layout('Text.Horizontal.TProgressbar',
+                         [('Horizontal.Progressbar.trough',
+                           {'children': [('Horizontal.Progressbar.pbar',
+                                        {'side': 'left', 'sticky': 'ns'})],
+                            'sticky': 'nswe'}),
+                          ('Horizontal.Progressbar.label', {'sticky': ''})])
+        self.style.configure('Text.Horizontal.TProgressbar', text='0%')
+    
+    def _create_menu(self):
+        """Create enhanced menu system."""
+        menubar = tk.Menu(self.root)
+        self.root.config(menu=menubar)
+        
+        # Settings menu
+        settings_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Settings ▾", menu=settings_menu)
+        
+        settings_menu.add_command(label="Providers...", command=self._configure_providers)
+        settings_menu.add_command(label="Proxy...", command=self._configure_proxy)
+        settings_menu.add_separator()
+        
+        # Theme submenu
+        theme_menu = tk.Menu(settings_menu, tearoff=0)
+        settings_menu.add_cascade(label="Theme", menu=theme_menu)
+        theme_menu.add_command(label="Light", command=lambda: self._set_theme('light'))
+        theme_menu.add_command(label="Dark", command=lambda: self._set_theme('dark'))
+        theme_menu.add_command(label="Auto", command=self._auto_theme)
+          # Help menu
+        help_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Help", menu=help_menu)
+        help_menu.add_command(label="About", command=self._show_about)
+    
+    def _build_ui(self):
+        """Build enhanced UI with visual hierarchy."""
+        main = ttk.Frame(self.root, padding=20)
         main.grid(sticky="nsew")
         self.root.rowconfigure(0, weight=1)
         self.root.columnconfigure(0, weight=1)
         
-        # Title with provider count
+        # Enhanced title section
         title_frame = ttk.Frame(main)
-        title_frame.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        title_frame.grid(row=0, column=0, sticky="ew", pady=(0, 15))
         title_frame.columnconfigure(0, weight=1)
         
         title_label = ttk.Label(title_frame, text="IOC Threat Intelligence Checker", 
-                               font=('Arial', 16, 'bold'))
+                               font=('Arial', 18, 'bold'))
         title_label.grid(row=0, column=0, sticky="w")
         
         self.provider_status = ttk.Label(title_frame, text="", foreground='gray')
         self.provider_status.grid(row=0, column=1, sticky="e")
         self._update_provider_status()
         
-        # Single IOC input
-        inp = ttk.Frame(main)
-        inp.grid(row=1, column=0, sticky="ew", pady=10)
+        # Single IOC input with enhanced styling
+        inp = ttk.LabelFrame(main, text="Single IOC Check", padding=15)
+        inp.grid(row=1, column=0, sticky="ew", pady=(0, 15))
         main.columnconfigure(0, weight=1)
         
-        ttk.Label(inp, text="Type").grid(row=0, column=0)
-        self.type_cb = ttk.Combobox(inp, values=IOC_TYPES, state="readonly", width=10)
+        ttk.Label(inp, text="Type:").grid(row=0, column=0, sticky="w")
+        self.type_cb = ttk.Combobox(inp, values=IOC_TYPES, state="readonly", width=12)
         self.type_cb.current(0)
-        self.type_cb.grid(row=0, column=1, padx=5)
+        self.type_cb.grid(row=0, column=1, padx=(5, 15), sticky="w")
+        
+        ttk.Label(inp, text="Value:").grid(row=0, column=2, sticky="w")
+        self.val = tk.Entry(inp, width=50, font=('Consolas', 10))
+        self.val.grid(row=0, column=3, sticky="ew", padx=(5, 15))
+        inp.columnconfigure(3, weight=1)
+        
+        # Enhanced action buttons
+        btn_frame = ttk.Frame(inp)
+        btn_frame.grid(row=0, column=4, sticky="e")
+        
+        self.btn_check = ttk.Button(btn_frame, text="Check", style='Primary.TButton',
+                                   command=self._start_single)
+        self.btn_check.pack(side=tk.LEFT, padx=(0, 5))
+        
+        self.btn_stop = ttk.Button(btn_frame, text="Stop", style='Danger.TButton',
+                                  command=self._stop_processing, state='disabled')
+        self.btn_stop.pack(side=tk.LEFT, padx=(0, 5))
+        
+        ttk.Button(btn_frame, text="Clear", command=self._clear).pack(side=tk.LEFT)
+        
+        # Batch processing with enhanced file input
+        batch = ttk.LabelFrame(main, text="Batch Processing", padding=15)
+        batch.grid(row=2, column=0, sticky="ew", pady=(0, 15))
+        
+        ttk.Label(batch, text="File:").grid(row=0, column=0, sticky="w")
+        
+        # Enhanced file entry with placeholder
+        self.file_var = tk.StringVar()
+        file_frame = ttk.Frame(batch)
+        file_frame.grid(row=0, column=1, sticky="ew", padx=(5, 15))
+        file_frame.columnconfigure(0, weight=1)
+        
+        self.file_entry = ttk.Entry(file_frame, textvariable=self.file_var, width=50)
+        self.file_entry.grid(row=0, column=0, sticky="ew")
+        self._set_placeholder(self.file_entry, "Select CSV / TXT / XLSX...")
+        
+        ttk.Button(file_frame, text="Browse", command=self._browse).grid(row=0, column=1, padx=(5, 0))
+        batch.columnconfigure(1, weight=1)
+        
+        # Enhanced batch buttons  
+        batch_btn_frame = ttk.Frame(batch)
+        batch_btn_frame.grid(row=0, column=2, sticky="e", padx=(15, 0))
+        
+        self.btn_batch = ttk.Button(batch_btn_frame, text="Start Processing", 
+                                   style='Primary.TButton', command=self._start_batch)
+        self.btn_batch.pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Only Providers button (Proxy moved to menu)
+        ttk.Button(batch_btn_frame, text="Providers", 
+                  command=self._configure_providers).pack(side=tk.LEFT)
+        
+        # IOC limit slider (enhanced)
+        self.limit_frame = ttk.LabelFrame(main, text="Processing Limit", padding=10)
+        self.limit_frame.grid(row=3, column=0, sticky="ew", pady=(0, 15))
+        self.limit_frame.columnconfigure(1, weight=1)
+        
+        ttk.Label(self.limit_frame, text="IOCs to process:").grid(row=0, column=0, sticky="w")
+        self.limit_scale = ttk.Scale(self.limit_frame, from_=0, to=100, orient='horizontal',
+                                    variable=self.ioc_limit, command=self._update_limit_label)
+        self.limit_scale.grid(row=0, column=1, sticky="ew", padx=(10, 10))
+        
+        self.limit_label = ttk.Label(self.limit_frame, text="All IOCs")
+        self.limit_label.grid(row=0, column=2, sticky="e")
+        
+        # Hide limit frame initially
+        self.limit_frame.grid_remove()
+        
+        # Enhanced progress section
+        progress_frame = ttk.LabelFrame(main, text="Progress", padding=10)
+        progress_frame.grid(row=4, column=0, sticky="ew", pady=(0, 15))
+        progress_frame.columnconfigure(0, weight=1)
+        
+        self.progress = ttk.Progressbar(progress_frame, style='Text.Horizontal.TProgressbar')
+        self.progress.grid(row=0, column=0, sticky="ew", pady=(0, 5))
+        
+        # Stats with enhanced layout
+        stats_frame = ttk.Frame(progress_frame)
+        stats_frame.grid(row=1, column=0, sticky="ew")
+        stats_frame.columnconfigure(4, weight=1)
+        
+        self.lab_stats = {}
+        for i, stat in enumerate(['threat', 'clean', 'error', 'total']):
+            self.lab_stats[stat] = ttk.Label(stats_frame, text=f"{stat}: 0", 
+                                           font=('TkDefaultFont', 9, 'bold'))
+            self.lab_stats[stat].grid(row=0, column=i, padx=(0, 15), sticky="w")
+        
+        # Enhanced output area with tooltip
+        output_frame = ttk.LabelFrame(main, text="Results", padding=10)
+        output_frame.grid(row=5, column=0, sticky="nsew", pady=(0, 10))
+        main.rowconfigure(5, weight=1)
+        
+        self.out = scrolledtext.ScrolledText(output_frame, height=15, font=('Consolas', 9))
+        self.out.pack(fill='both', expand=True)
+        TooltipManager.add_tooltip(self.out, "Processing results will appear here")
+        
+        # Enhanced options
+        options_frame = ttk.Frame(main)
+        options_frame.grid(row=6, column=0, sticky="ew")
+        
+        self.show_only = tk.BooleanVar(value=True)
+        ttk.Checkbutton(options_frame, text="Show only threats & errors", 
+                       variable=self.show_only).pack(side='left')
+        
+        # Bind Enter key for single IOC check
+        self.root.bind("<Return>", self._start_single)
         
         ttk.Label(inp, text="Value").grid(row=0, column=2)
         self.val = tk.Entry(inp, width=40)
@@ -613,13 +882,35 @@ class IOCCheckerGUI:
         
         # Apply initial theme
         self._apply_theme()
-
+    
     def _apply_theme(self):
-        """Apply the current theme to all widgets."""
-        theme = THEMES[self.current_theme]
+        """Apply the current enhanced theme to all widgets."""
+        theme = ENHANCED_THEMES[self.current_theme]
         
         # Configure root window
         self.root.configure(bg=theme['bg'])
+        
+        # Update custom styles based on theme
+        if self.current_theme == 'dark':
+            self.style.configure('Primary.TButton', 
+                               background=theme['primary_button'], foreground='white')
+            self.style.configure('Danger.TButton',
+                               background=theme['danger_button'], foreground='white')
+        else:
+            self.style.configure('Primary.TButton',
+                               background=theme['primary_button'], foreground='white')
+            self.style.configure('Danger.TButton', 
+                               background=theme['danger_button'], foreground='white')
+        
+        # Configure output area colors
+        self.out.configure(bg=theme['bg'], fg=theme['fg'],
+                          selectbackground=theme['select_bg'],
+                          selectforeground=theme['select_fg'],
+                          insertbackground=theme['fg'])
+        
+        # Update text tags with theme colors
+        for tag, color in theme['colors'].items():
+            self.out.tag_configure(tag, foreground=color)
           # Configure ttk styles for dark mode
         style = ttk.Style()
         if self.current_theme == 'dark':
@@ -949,259 +1240,323 @@ class IOCCheckerGUI:
                 self._reset_ui_state()
         self.root.after_idle(lambda: self.root.after(150, self._poll))
 
-    def _start_single(self, *_):
-        if self.running:
-            return
-        v = self.val.get().strip()
-        t = self.type_cb.get()
-        if not v:
-            return
-        
-        # Check if value looks like a date/time and reject it
-        if self._is_datetime_format(v):
-            self._log("error", "Date/time values are not valid IOCs. Please enter an IP, domain, URL, or hash.")
+    def _start_single(self, event=None):
+        """Start single IOC check with enhanced UI feedback."""
+        if self.is_processing:
             return
             
-        self._log("info", f"=== {t}:{v} ===")
-        cmd = [PYTHON, SCRIPT, t, v]
+        ioc_type = self.type_cb.get()
+        ioc_value = self.val.get().strip()
         
-        # Add provider arguments based on user selection
-        provider_args = self._build_provider_args()
-        cmd.extend(provider_args)
-        
-        self.processed_iocs = 0
+        if not ioc_value or ioc_value == "Enter IOC value...":
+            messagebox.showwarning("Input Required", "Please enter an IOC value")
+            return
+            
+        self._toggle_processing_state(True)
         self.total_iocs = 1
-        self._start_processing()
-        threading.Thread(target=self._run_sub, args=(cmd,), daemon=True).start()
-
-    def _start_batch(self):
-        if self.running:
-            return
-        p = self.file_var.get().strip()
-        if not p or not os.path.exists(p):
-            return
-        
-        self._log("info", f"=== Starting batch processing of {p} ===")
-        self._log("info", f"📂 Analyzing file structure...")
-        
-        # Generate output filename based on input file location
-        input_path = Path(p)
-        output_filename = input_path.stem + "_results.csv"
-        output_path = input_path.parent / output_filename
-        
-        # Use format-agnostic approach with file flag and specify output
-        cmd = [PYTHON, SCRIPT, "--file", p, "-o", str(output_path)]
-        
-        # Add limit if slider is enabled and not set to max
-        if hasattr(self, 'limit_slider') and self.limit_frame.winfo_viewable():
-            limit_value = int(self.limit_slider.get())
-            if limit_value < self.total_file_iocs:
-                cmd.extend(["--limit", str(limit_value)])
-                self._log("info", f"🔢 Processing limit set to {limit_value} IOCs (of {self.total_file_iocs} available)")
-            else:
-                self._log("info", f"🔢 Processing all {self.total_file_iocs} IOCs")
-        
-        # Add provider arguments based on user selection
-        provider_args = self._build_provider_args()
-        cmd.extend(provider_args)
-        
-        # Log enabled providers
-        enabled_providers = [name for name, enabled in self.provider_config.items() if enabled]
-        self._log("info", f"🔍 Active providers: {', '.join(enabled_providers)}")
-        
-        # Log the command and output path for debugging
-        self._log("info", f"💻 Command: {' '.join(cmd)}")
-        self._log("info", f"📁 Output will be saved to: {output_path}")
-        self._log("info", f"🚀 Starting IOC analysis...")
-        
         self.processed_iocs = 0
-        self.total_iocs = 0
-        self._start_processing()
-        threading.Thread(target=self._run_sub, args=(cmd,), daemon=True).start()
-
-    def _is_datetime_format(self, value):
-        """Check if value looks like a date/time format to avoid false positives."""
-        # Common date/time patterns that might be mistaken for IOCs
-        datetime_patterns = [
-            r'^\d{4}-\d{2}-\d{2}',  # YYYY-MM-DD
-            r'^\d{2}[-/]\d{2}[-/]\d{4}',  # MM/DD/YYYY or DD/MM/YYYY
-            r'^\d{1,2}:\d{2}',  # HH:MM
-            r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}',  # ISO datetime
-        ]
         
-        for pattern in datetime_patterns:
-            if re.match(pattern, value.strip()):
-                return True
-        return False
-
-    def _clear(self):
-        self.out.config(state=tk.NORMAL)
-        self.out.delete("1.0", tk.END)
-        self.out.config(state=tk.DISABLED)
-        for k in self.stats:
-            self.stats[k] = 0
-            self.lab_stats[k].configure(text=f"{k}:0")
-
-    def _log(self, typ, msg):
-        if _should_show(msg, self.show_only.get()):
-            self.out.config(state=tk.NORMAL)
-            self.out.insert(tk.END, msg + "\n", typ)
-            self.out.see(tk.END)
-            self.out.config(state=tk.DISABLED)
-        self.stats['total'] += 1
-        if typ in ('threat', 'clean', 'error'):
-            self.stats[typ] += 1
-            self.lab_stats[typ].configure(text=f"{typ}:{self.stats[typ]}")
-        self.lab_stats['total'].configure(text=f"total:{self.stats['total']}")
-
-    def run(self):
-        self.root.mainloop()
-
-    def _setup_drag_drop(self):
-        """Setup drag and drop functionality."""
-        try:
-            from tkinterdnd2 import DND_FILES, TkinterDnD
-            # Convert existing window to TkinterDnD
-            self.root.drop_target_register(DND_FILES)
-            self.root.dnd_bind('<<Drop>>', self._on_drop)
-            log.info("Drag & drop enabled")
-        except ImportError:
-            log.info("Drag & drop not available (tkinterdnd2 not installed)")
-        except Exception as e:
-            log.warning(f"Drag & drop setup failed: {e}")
-
-    def _on_drop(self, event):
-        """Handle file drop."""
-        try:
-            files = self.root.tk.splitlist(event.data)
-            if files:
-                file_path = files[0]
-                # Remove curly braces if present
-                if file_path.startswith('{') and file_path.endswith('}'):
-                    file_path = file_path[1:-1]
-                
-                self.file_var.set(file_path)
-                self._update_format_info(file_path)
-                self._validate_file(file_path)
-        except Exception as e:
-            log.error(f"Drop handling error: {e}")
-
-    def _update_format_info(self, file_path):
-        """Update format information label."""
-        try:
-            p = Path(file_path)
-            suffix = p.suffix.lower()
-            format_map = {
-                '.csv': 'CSV (Comma-separated)',
-                '.tsv': 'TSV (Tab-separated)', 
-                '.xlsx': 'Excel Spreadsheet',
-                '.txt': 'Plain Text'
-            }
-            format_text = format_map.get(suffix, f'Unknown format ({suffix})')
-            self.format_label.config(text=f"Detected: {format_text}")
-        except Exception:
-            self.format_label.config(text="Supported: CSV, TSV, XLSX, TXT")
-
-    def _validate_file(self, file_path):
-        """Validate file and show preview of IOCs."""
-        try:
-            path = Path(file_path)
-            if not path.exists():
-                self.format_label.config(text="File not found", foreground="red")
-                return
-            
-            # Try to load a few IOCs for preview
-            threading.Thread(target=self._preview_file, args=(path,), daemon=True).start()
-            
-        except Exception as e:
-            self.format_label.config(text=f"Error: {e}", foreground="red")
-
-    def _preview_file(self, file_path):
-        """Preview file IOCs in background."""
-        try:
-            iocs = load_iocs(file_path)
-            count = len(iocs)
-            
-            # Update UI on main thread
-            self.root.after(0, self._update_preview, count, iocs[:3])
-            
-        except Exception as e:
-            self.root.after(0, self._update_preview_error, str(e))
-
-    def _update_preview(self, count, sample_iocs):
-        """Update preview on main thread."""
-        preview_text = f"Preview: {count} IOCs found"
-        if sample_iocs:
-            types = list(set(ioc['type'] for ioc in sample_iocs))
-            preview_text += f" (types: {', '.join(types)})"
+        # Clear previous results
+        self.out.delete(1.0, tk.END)
+        self.stats = {'threat': 0, 'clean': 0, 'error': 0, 'total': 0}
+        self._update_stats_display()
         
-        self.format_label.config(text=preview_text, foreground="green")
+        # Start processing
+        self._run_ioc_check([ioc_value], [ioc_type])
+    
+    def _start_batch(self):
+        """Start batch processing with enhanced feedback."""
+        if self.is_processing:
+            return
+            
+        filename = self.file_var.get()
+        if not filename:
+            messagebox.showwarning("File Required", "Please select a file")
+            return
+            
+        self._toggle_processing_state(True)
         
-        # Setup slider for IOC count selection
-        self.total_file_iocs = count
-        if count > 1:
-            # Show the limit slider
-            self.limit_frame.grid()
-            self.limit_slider.config(to=count)
-            self.ioc_limit.set(count)  # Default to all IOCs
-            self.limit_label.config(text="All IOCs")
-        else:
-            # Hide slider for single IOC files
-            self.limit_frame.grid_remove()
-
-    def _update_preview_error(self, error):
-        """Update preview error on main thread."""
-        self.format_label.config(text=f"Error: {error}", foreground="red")
-
-    def _stop_processing(self):
-        """Stop the current processing operation."""
-        if self.process and self.running:
+        # Determine limit
+        limit = int(self.ioc_limit.get()) if self.ioc_limit.get() > 0 else None
+        
+        try:
+            iocs, detected_type = load_iocs(filename, max_rows=limit)
+            self.total_iocs = len(iocs)
+            self.processed_iocs = 0
+            
+            # Clear previous results
+            self.out.delete(1.0, tk.END)
+            self.stats = {'threat': 0, 'clean': 0, 'error': 0, 'total': 0}
+            self._update_stats_display()
+            
+            # Start processing
+            ioc_values = [ioc['value'] for ioc in iocs]
+            ioc_types = [ioc['type'] for ioc in iocs]
+            self._run_ioc_check(ioc_values, ioc_types, batch=True)
+            
+        except Exception as e:
+            self._toggle_processing_state(False)
+            messagebox.showerror("Processing Error", f"Could not process file: {e}")
+    
+    def _run_ioc_check(self, ioc_values, ioc_types, batch=False):
+        """Run IOC check subprocess with enhanced monitoring."""
+        def run_subprocess():
             try:
-                self.process.terminate()
-                self._log("warning", "Processing stopped by user")
-                self.running = False
-                self._hide_progress()
-                self._reset_ui_state()
+                # Build command
+                cmd = [sys.executable, "ioc_checker.py"]
+                
+                if batch:
+                    cmd.extend(["--file", self.file_var.get()])
+                    if self.ioc_limit.get() > 0:
+                        cmd.extend(["--limit", str(self.ioc_limit.get())])
+                else:
+                    cmd.extend(["--type", ioc_types[0], "--value", ioc_values[0]])
+                
+                # Add provider configuration
+                enabled_providers = [p for p, enabled in self.provider_config.items() if enabled]
+                if enabled_providers:
+                    cmd.extend(["--providers"] + enabled_providers)
+                
+                # Start subprocess
+                self.proc = subprocess.Popen(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, bufsize=1, universal_newlines=True
+                )
+                
+                # Read output
+                for line in self.proc.stdout:
+                    self.q.put(line.strip())
+                
+                self.proc.wait()
+                
             except Exception as e:
-                self._log("error", f"Error stopping process: {e}")
-
-    def _reset_ui_state(self):
-        """Reset UI state after processing completes or stops."""
-        self.btn_check.config(state='normal')
-        self.btn_batch.config(state='normal')
-        self.btn_stop.config(state='disabled')
-        self.running = False
-        self.process = None
-
-    def _start_processing(self):
-        """Common setup when starting any processing operation."""
-        self.btn_check.config(state='disabled')
-        self.btn_batch.config(state='disabled')
-        self.btn_stop.config(state='normal')
-        self.running = True
-
+                self.q.put(f"Process error: {e}")
+            finally:
+                self.q.put("✅ Processing completed")
+        
+        threading.Thread(target=run_subprocess, daemon=True).start()
+    
+    def _stop_processing(self):
+        """Stop current processing with cleanup."""
+        if self.proc:
+            try:
+                self.proc.terminate()
+                self.proc.wait(timeout=5)
+            except:
+                self.proc.kill()
+            finally:
+                self.proc = None
+        
+        self._toggle_processing_state(False)
+        self.out.insert(tk.END, "\n❌ Processing stopped by user\n", 'error')
+        self.out.see(tk.END)
+    
+    def _configure_providers(self):
+        """Open provider configuration dialog."""
+        dialog = ProviderDlg(self.root, self.provider_config.copy(), self.current_theme)
+        result = dialog.result
+        if result:
+            self.provider_config = result
+            self._update_provider_status()
+    
+    def _configure_proxy(self):
+        """Open proxy configuration dialog (placeholder)."""
+        messagebox.showinfo("Proxy Configuration", 
+                          "Proxy configuration dialog will be implemented here.\n\n"
+                          "This feature allows configuring HTTP/HTTPS proxies "
+                          "for threat intelligence provider requests.")
+    
+    def _update_provider_status(self):
+        """Update provider status display."""
+        enabled_count = sum(1 for enabled in self.provider_config.values() if enabled)
+        total_count = len(self.provider_config)
+        self.provider_status.configure(text=f"Providers: {enabled_count}/{total_count} enabled")
+    
+    def run(self):
+        """Start the GUI application."""
+        self.root.mainloop()
+    
     def _browse(self):
-        filetypes = [
-            ("All Supported", "*.csv;*.tsv;*.xlsx;*.txt"),
-            ("CSV files", "*.csv"),
-            ("TSV files", "*.tsv"), 
-            ("Excel files", "*.xlsx"),
-            ("Text files", "*.txt"),
-            ("All files", "*.*")
-        ]
-        p = filedialog.askopenfilename(filetypes=filetypes)
-        if p:
-            self.file_var.set(p)
-            self._update_format_info(p)
-            self._validate_file(p)
-
-# Keep original class name for compatibility
-App = IOCCheckerGUI
-
-def main():
-    """Main entry point."""
-    logging.basicConfig(level=logging.INFO)
-    IOCCheckerGUI().run()
-
-if __name__ == "__main__":
-    main()
+        """Enhanced file browser with multiple format support."""
+        filename = filedialog.askopenfilename(
+            title="Select IOC file",
+            filetypes=[
+                ("All supported", "*.csv;*.txt;*.xlsx"),
+                ("CSV files", "*.csv"),
+                ("Text files", "*.txt"),
+                ("Excel files", "*.xlsx"),
+                ("All files", "*.*")
+            ]
+        )
+        if filename:
+            self.file_var.set(filename)
+            self._check_file_and_setup_limit()
+    
+    def _check_file_and_setup_limit(self):
+        """Check file and setup IOC limit controls."""
+        filename = self.file_var.get()
+        if filename and os.path.exists(filename):
+            try:
+                # Preview file to count IOCs
+                iocs, detected_type = load_iocs(filename, max_rows=None)
+                self.total_file_iocs = len(iocs)
+                
+                if self.total_file_iocs > 50:
+                    self.limit_frame.grid()
+                    self.limit_scale.configure(to=self.total_file_iocs)
+                    self.ioc_limit.set(0)  # Default to all
+                    self._update_limit_label()
+                else:
+                    self.limit_frame.grid_remove()
+                    
+                # Show file info
+                info_text = f"Preview: {self.total_file_iocs} IOCs found (type: {detected_type})"
+                if hasattr(self, 'format_label'):
+                    self.format_label.configure(text=info_text)
+                    
+            except Exception as e:
+                messagebox.showerror("File Error", f"Could not read file: {e}")
+    
+    def _update_limit_label(self, *args):
+        """Update the limit label text."""
+        limit = int(self.ioc_limit.get())
+        if limit == 0:
+            self.limit_label.configure(text="All IOCs")
+        else:
+            self.limit_label.configure(text=f"{limit} IOCs")
+    
+    def _start_single(self, event=None):
+        """Start single IOC check with enhanced UI feedback."""
+        if self.is_processing:
+            return
+            
+        ioc_type = self.type_cb.get()
+        ioc_value = self.val.get().strip()
+        
+        if not ioc_value or ioc_value == "Enter IOC value...":
+            messagebox.showwarning("Input Required", "Please enter an IOC value")
+            return
+            
+        self._toggle_processing_state(True)
+        self.total_iocs = 1
+        self.processed_iocs = 0
+        
+        # Clear previous results
+        self.out.delete(1.0, tk.END)
+        self.stats = {'threat': 0, 'clean': 0, 'error': 0, 'total': 0}
+        self._update_stats_display()
+        
+        # Start processing
+        self._run_ioc_check([ioc_value], [ioc_type])
+    
+    def _start_batch(self):
+        """Start batch processing with enhanced feedback."""
+        if self.is_processing:
+            return
+            
+        filename = self.file_var.get()
+        if not filename:
+            messagebox.showwarning("File Required", "Please select a file")
+            return
+            
+        self._toggle_processing_state(True)
+        
+        # Determine limit
+        limit = int(self.ioc_limit.get()) if self.ioc_limit.get() > 0 else None
+        
+        try:
+            iocs, detected_type = load_iocs(filename, max_rows=limit)
+            self.total_iocs = len(iocs)
+            self.processed_iocs = 0
+            
+            # Clear previous results
+            self.out.delete(1.0, tk.END)
+            self.stats = {'threat': 0, 'clean': 0, 'error': 0, 'total': 0}
+            self._update_stats_display()
+            
+            # Start processing
+            ioc_values = [ioc['value'] for ioc in iocs]
+            ioc_types = [ioc['type'] for ioc in iocs]
+            self._run_ioc_check(ioc_values, ioc_types, batch=True)
+            
+        except Exception as e:
+            self._toggle_processing_state(False)
+            messagebox.showerror("Processing Error", f"Could not process file: {e}")
+    
+    def _run_ioc_check(self, ioc_values, ioc_types, batch=False):
+        """Run IOC check subprocess with enhanced monitoring."""
+        def run_subprocess():
+            try:
+                # Build command
+                cmd = [sys.executable, "ioc_checker.py"]
+                
+                if batch:
+                    cmd.extend(["--file", self.file_var.get()])
+                    if self.ioc_limit.get() > 0:
+                        cmd.extend(["--limit", str(self.ioc_limit.get())])
+                else:
+                    cmd.extend(["--type", ioc_types[0], "--value", ioc_values[0]])
+                
+                # Add provider configuration
+                enabled_providers = [p for p, enabled in self.provider_config.items() if enabled]
+                if enabled_providers:
+                    cmd.extend(["--providers"] + enabled_providers)
+                
+                # Start subprocess
+                self.proc = subprocess.Popen(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, bufsize=1, universal_newlines=True
+                )
+                
+                # Read output
+                for line in self.proc.stdout:
+                    self.q.put(line.strip())
+                
+                self.proc.wait()
+                
+            except Exception as e:
+                self.q.put(f"Process error: {e}")
+            finally:
+                self.q.put("✅ Processing completed")
+        
+        threading.Thread(target=run_subprocess, daemon=True).start()
+    
+    def _stop_processing(self):
+        """Stop current processing with cleanup."""
+        if self.proc:
+            try:
+                self.proc.terminate()
+                self.proc.wait(timeout=5)
+            except:
+                self.proc.kill()
+            finally:
+                self.proc = None
+        
+        self._toggle_processing_state(False)
+        self.out.insert(tk.END, "\n❌ Processing stopped by user\n", 'error')
+        self.out.see(tk.END)
+    
+    def _configure_providers(self):
+        """Open provider configuration dialog."""
+        dialog = ProviderDlg(self.root, self.provider_config.copy(), self.current_theme)
+        result = dialog.result
+        if result:
+            self.provider_config = result
+            self._update_provider_status()
+    
+    def _configure_proxy(self):
+        """Open proxy configuration dialog (placeholder)."""
+        messagebox.showinfo("Proxy Configuration", 
+                          "Proxy configuration dialog will be implemented here.\n\n"
+                          "This feature allows configuring HTTP/HTTPS proxies "
+                          "for threat intelligence provider requests.")
+    
+    def _update_provider_status(self):
+        """Update provider status display."""
+        enabled_count = sum(1 for enabled in self.provider_config.values() if enabled)
+        total_count = len(self.provider_config)
+        self.provider_status.configure(text=f"Providers: {enabled_count}/{total_count} enabled")
+    
+    def run(self):
+        """Start the GUI application."""
+        self.root.mainloop()
