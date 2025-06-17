@@ -5,7 +5,9 @@ Tkinter GUI for IOC checking with format-agnostic input, live progress bar, and 
 • Menu-based settings • Dark/Light theme toggle • Enhanced visual hierarchy
 """
 import tkinter as tk
-from tkinter import ttk, scrolledtext, filedialog, messagebox
+import ttkbootstrap as tb
+from ttkbootstrap.constants import *
+from tkinter import scrolledtext, filedialog, messagebox
 import subprocess
 import sys
 import threading
@@ -16,13 +18,8 @@ import logging
 from pathlib import Path
 from loader import load_iocs
 
-# Try to import ttkbootstrap for enhanced theming
-try:
-    import ttkbootstrap as ttk_bs
-    from ttkbootstrap.constants import *
-    TTKBOOTSTRAP_AVAILABLE = True
-except ImportError:
-    TTKBOOTSTRAP_AVAILABLE = False
+# ttkbootstrap is now the primary theming system
+TTKBOOTSTRAP_AVAILABLE = True
 
 log = logging.getLogger("gui")
 
@@ -214,47 +211,46 @@ class ProviderDlg:
         
         # Handle window close button (X) to cancel
         self.dialog.protocol("WM_DELETE_WINDOW", self._cancel)
-        
-        # Center the dialog
+          # Center the dialog
         self.dialog.update_idletasks()
         x = (self.dialog.winfo_screenwidth() // 2) - (600 // 2)
         y = (self.dialog.winfo_screenheight() // 2) - (600 // 2)
         self.dialog.geometry(f"+{x}+{y}")
         
-        main_frame = ttk.Frame(self.dialog, padding=20)
+        main_frame = tb.Frame(self.dialog, padding=20)
         main_frame.pack(fill='both', expand=True)
         
         # Title
-        title_label = ttk.Label(main_frame, text="Select Threat Intelligence Providers", 
+        title_label = tb.Label(main_frame, text="Select Threat Intelligence Providers", 
                                font=('Arial', 14, 'bold'))
         title_label.pack(anchor='w', pady=(0, 15))
         
         # Instructions
-        instructions = ttk.Label(main_frame, 
+        instructions = tb.Label(main_frame, 
                                 text="Choose which threat intelligence providers to query.\n"
                                      "Check 'Always On' to make a provider permanently enabled.",
                                 foreground='gray')
         instructions.pack(anchor='w', pady=(0, 10))
         
         # Filter section
-        filter_frame = ttk.Frame(main_frame)
+        filter_frame = tb.Frame(main_frame)
         filter_frame.pack(fill='x', pady=(0, 15))
         
-        ttk.Label(filter_frame, text="Filter by IOC type:").pack(side='left')
+        tb.Label(filter_frame, text="Filter by IOC type:").pack(side='left')
         self.filter_var = tk.StringVar(value="all")
-        filter_combo = ttk.Combobox(filter_frame, textvariable=self.filter_var, 
+        filter_combo = tb.Combobox(filter_frame, textvariable=self.filter_var, 
                                    values=["all", "ip", "domain", "url", "hash"], 
                                    state="readonly", width=10)
         filter_combo.pack(side='left', padx=(10, 0))
         filter_combo.bind('<<ComboboxSelected>>', self._on_filter_change)
         
         # Create a simple frame for the provider list (remove problematic scrolling)
-        list_container = ttk.Frame(main_frame)
+        list_container = tb.Frame(main_frame)
         list_container.pack(fill='both', expand=True, pady=(0, 15))
           # Add a canvas with scrollbar for the provider list
         canvas = tk.Canvas(list_container, height=250, bg=theme['bg'], highlightthickness=0)
-        scrollbar = ttk.Scrollbar(list_container, orient="vertical", command=canvas.yview)
-        self.list_frame = ttk.Frame(canvas)
+        scrollbar = tb.Scrollbar(list_container, orient="vertical", command=canvas.yview)
+        self.list_frame = tb.Frame(canvas)
         
         self.list_frame.bind(
             "<Configure>",
@@ -272,22 +268,22 @@ class ProviderDlg:
         self._build_provider_widgets(config)
         
         # Buttons frame - ensure it's separate from the scrollable area
-        button_frame = ttk.Frame(main_frame)
+        button_frame = tb.Frame(main_frame)
         button_frame.pack(fill='x', pady=(15, 0))
         
         # Left side buttons
-        left_buttons = ttk.Frame(button_frame)
+        left_buttons = tb.Frame(button_frame)
         left_buttons.pack(side='left')
         
-        ttk.Button(left_buttons, text="Select All", command=self._select_all).pack(side='left')
-        ttk.Button(left_buttons, text="Select None", command=self._select_none).pack(side='left', padx=(10, 0))
-        ttk.Button(left_buttons, text="Defaults", command=self._select_defaults).pack(side='left', padx=(10, 0))
+        tb.Button(left_buttons, text="Select All", command=self._select_all).pack(side='left')
+        tb.Button(left_buttons, text="Select None", command=self._select_none).pack(side='left', padx=(10, 0))
+        tb.Button(left_buttons, text="Defaults", command=self._select_defaults).pack(side='left', padx=(10, 0))
           # Right side buttons
-        right_buttons = ttk.Frame(button_frame)
+        right_buttons = tb.Frame(button_frame)
         right_buttons.pack(side='right')
         
-        ttk.Button(right_buttons, text="Cancel", command=self._cancel).pack(side='right', padx=(10, 0))
-        save_button = ttk.Button(right_buttons, text="Save", command=self.ok)
+        tb.Button(right_buttons, text="Cancel", command=self._cancel).pack(side='right', padx=(10, 0))
+        save_button = tb.Button(right_buttons, text="Save", command=self.ok)
         save_button.pack(side='right')
         
         # Bind Enter and Escape
@@ -342,19 +338,19 @@ class ProviderDlg:
             
             var = self.vars[provider]
               # Main provider frame
-            provider_frame = ttk.Frame(self.list_frame)
+            provider_frame = tb.Frame(self.list_frame)
             provider_frame.pack(fill='x', pady=2)
             provider_frame.columnconfigure(1, weight=1)  # Make description column expandable
             
             # Checkbox
-            checkbox = ttk.Checkbutton(provider_frame, text=provider.upper(), 
+            checkbox = tb.Checkbutton(provider_frame, text=provider.upper(), 
                                      variable=var, width=15)
             checkbox.grid(row=0, column=0, sticky='w', padx=(0, 10))
             
             # Description with IOC types
             ioc_types = provider_capabilities.get(provider, ())
             desc_with_types = f"{description} - Supports: {', '.join(ioc_types)}"
-            desc_label = ttk.Label(provider_frame, text=desc_with_types, 
+            desc_label = tb.Label(provider_frame, text=desc_with_types, 
                                  foreground='gray')
             desc_label.grid(row=0, column=1, sticky='w', padx=(0, 10))
             
@@ -366,7 +362,7 @@ class ProviderDlg:
             else:
                 always_on_var = getattr(self, always_on_attr)
             
-            always_on_cb = ttk.Checkbutton(provider_frame, text="Always On", 
+            always_on_cb = tb.Checkbutton(provider_frame, text="Always On", 
                                          variable=always_on_var)
             always_on_cb.grid(row=0, column=2, sticky='e', padx=(10, 0))
     
@@ -437,33 +433,33 @@ class ProxyDlg:
         y = (self.dialog.winfo_screenheight() // 2) - (200 // 2)
         self.dialog.geometry(f"+{x}+{y}")
         
-        main_frame = ttk.Frame(self.dialog, padding=20)
+        main_frame = tb.Frame(self.dialog, padding=20)
         main_frame.pack(fill='both', expand=True)
         
         # Title
-        title_label = ttk.Label(main_frame, text="HTTP Proxy Configuration", 
+        title_label = tb.Label(main_frame, text="HTTP Proxy Configuration", 
                                font=('Arial', 12, 'bold'))
         title_label.pack(anchor='w', pady=(0, 10))
         
         # Proxy input
-        ttk.Label(main_frame, text="Proxy URL (e.g., http://proxy:8080):").pack(anchor='w')
+        tb.Label(main_frame, text="Proxy URL (e.g., http://proxy:8080):").pack(anchor='w')
         
         self.var = tk.StringVar(value=os.environ.get("http_proxy", ""))
-        self.entry = ttk.Entry(main_frame, textvariable=self.var, width=50)
+        self.entry = tb.Entry(main_frame, textvariable=self.var, width=50)
         self.entry.pack(fill='x', pady=(5, 15))
         
         # Instructions
-        instructions = ttk.Label(main_frame, 
+        instructions = tb.Label(main_frame, 
                                 text="Leave empty to disable proxy. Changes apply to current session only.",
                                 foreground='gray')
         instructions.pack(anchor='w', pady=(0, 15))
         
         # Buttons
-        button_frame = ttk.Frame(main_frame)
+        button_frame = tb.Frame(main_frame)
         button_frame.pack(fill='x')
         
-        ttk.Button(button_frame, text="Cancel", command=self._cancel).pack(side='right')
-        ttk.Button(button_frame, text="OK", command=self.ok).pack(side='right', padx=(0, 10))
+        tb.Button(button_frame, text="Cancel", command=self._cancel).pack(side='right')
+        tb.Button(button_frame, text="OK", command=self.ok).pack(side='right', padx=(0, 10))
         
         # Bind Enter and Escape
         self.dialog.bind('<Return>', lambda e: self.ok())
@@ -580,27 +576,23 @@ class IOCCheckerGUI:
         self._setup_drag_drop()
         
         # Apply initial theme
-        self._apply_theme()
-        
+        self._apply_theme()        
         # Start queue polling
         self._poll_queue()
-    
+        
     def _setup_styles(self):
-        """Setup enhanced ttk styles."""
-        self.style = ttk.Style()
+        """Setup enhanced ttkbootstrap styles."""
+        # Initialize ttkbootstrap with darkly theme
+        self.style = tb.Style(theme="darkly")
         
-        if TTKBOOTSTRAP_AVAILABLE:
-            self.style.theme_use('litera')
-        else:
-            self.style.theme_use('clam')
-        
-        # Configure custom styles
+        # Configure custom styles for enhanced appearance
         self.style.configure('Primary.TButton', 
                            background='#0078D4', foreground='white',
                            borderwidth=1, focuscolor='none')
         self.style.map('Primary.TButton',
                       background=[('active', '#106EBE'), ('pressed', '#005A9E')])
         
+        # Update Stop button style to danger-outline
         self.style.configure('Danger.TButton',
                            background='#D13438', foreground='white', 
                            borderwidth=1, focuscolor='none')
@@ -619,260 +611,270 @@ class IOCCheckerGUI:
     def _create_menu(self):
         """Create enhanced menu system."""
         menubar = tk.Menu(self.root)
-        self.root.config(menu=menubar)
-        
+        self.root.config(menu=menubar)        
         # Settings menu
         settings_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Settings ▾", menu=settings_menu)
         
         settings_menu.add_command(label="Providers...", command=self._configure_providers)
         settings_menu.add_command(label="Proxy...", command=self._configure_proxy)
-        settings_menu.add_separator()
         
-        # Theme submenu
-        theme_menu = tk.Menu(settings_menu, tearoff=0)
-        settings_menu.add_cascade(label="Theme", menu=theme_menu)
-        theme_menu.add_command(label="Light", command=lambda: self._set_theme('light'))
-        theme_menu.add_command(label="Dark", command=lambda: self._set_theme('dark'))
-        theme_menu.add_command(label="Auto", command=self._auto_theme)
-          # Help menu
+        # View menu with Light/Dark theme toggle
+        view_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="View ▸", menu=view_menu)
+        view_menu.add_command(label="Light Theme", command=lambda: self._toggle_theme('light'))
+        view_menu.add_command(label="Dark Theme", command=lambda: self._toggle_theme('dark'))
+        
+        # Help menu
         help_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Help", menu=help_menu)
         help_menu.add_command(label="About", command=self._show_about)
     
     def _build_ui(self):
         """Build enhanced UI with visual hierarchy."""
-        main = ttk.Frame(self.root, padding=20)
+        main = tb.Frame(self.root, padding=20)
         main.grid(sticky="nsew")
         self.root.rowconfigure(0, weight=1)
         self.root.columnconfigure(0, weight=1)
         
         # Enhanced title section
-        title_frame = ttk.Frame(main)
+        title_frame = tb.Frame(main)
         title_frame.grid(row=0, column=0, sticky="ew", pady=(0, 15))
         title_frame.columnconfigure(0, weight=1)
         
-        title_label = ttk.Label(title_frame, text="IOC Threat Intelligence Checker", 
+        title_label = tb.Label(title_frame, text="IOC Threat Intelligence Checker", 
                                font=('Arial', 18, 'bold'))
         title_label.grid(row=0, column=0, sticky="w")
         
-        self.provider_status = ttk.Label(title_frame, text="", foreground='gray')
+        self.provider_status = tb.Label(title_frame, text="", foreground='gray')
         self.provider_status.grid(row=0, column=1, sticky="e")
         self._update_provider_status()
         
         # Single IOC input with enhanced styling
-        inp = ttk.LabelFrame(main, text="Single IOC Check", padding=15)
+        inp = tb.LabelFrame(main, text="Single IOC Check", padding=15)
         inp.grid(row=1, column=0, sticky="ew", pady=(0, 15))
         main.columnconfigure(0, weight=1)
         
-        ttk.Label(inp, text="Type:").grid(row=0, column=0, sticky="w")
-        self.type_cb = ttk.Combobox(inp, values=IOC_TYPES, state="readonly", width=12)
+        tb.Label(inp, text="Type:").grid(row=0, column=0, sticky="w")
+        self.type_cb = tb.Combobox(inp, values=IOC_TYPES, state="readonly", width=12)
         self.type_cb.current(0)
         self.type_cb.grid(row=0, column=1, padx=(5, 15), sticky="w")
         
-        ttk.Label(inp, text="Value:").grid(row=0, column=2, sticky="w")
+        tb.Label(inp, text="Value:").grid(row=0, column=2, sticky="w")
         self.val = tk.Entry(inp, width=50, font=('Consolas', 10))
         self.val.grid(row=0, column=3, sticky="ew", padx=(5, 15))
         inp.columnconfigure(3, weight=1)
         
         # Enhanced action buttons
-        btn_frame = ttk.Frame(inp)
+        btn_frame = tb.Frame(inp)
         btn_frame.grid(row=0, column=4, sticky="e")
         
-        self.btn_check = ttk.Button(btn_frame, text="Check", style='Primary.TButton',
+        self.btn_check = tb.Button(btn_frame, text="Check", style='Primary.TButton',
                                    command=self._start_single)
-        self.btn_check.pack(side=tk.LEFT, padx=(0, 5))
-        
-        self.btn_stop = ttk.Button(btn_frame, text="Stop", style='Danger.TButton',
+        self.btn_check.pack(side=tk.LEFT, padx=(0, 5))        
+        self.btn_stop = tb.Button(btn_frame, text="Stop", bootstyle="danger-outline",
                                   command=self._stop_processing, state='disabled')
         self.btn_stop.pack(side=tk.LEFT, padx=(0, 5))
         
-        ttk.Button(btn_frame, text="Clear", command=self._clear).pack(side=tk.LEFT)
+        tb.Button(btn_frame, text="Clear", command=self._clear).pack(side=tk.LEFT)
         
         # Batch processing with enhanced file input
-        batch = ttk.LabelFrame(main, text="Batch Processing", padding=15)
+        batch = tb.LabelFrame(main, text="Batch Processing", padding=15)
         batch.grid(row=2, column=0, sticky="ew", pady=(0, 15))
         
-        ttk.Label(batch, text="File:").grid(row=0, column=0, sticky="w")
+        tb.Label(batch, text="File:").grid(row=0, column=0, sticky="w")
         
         # Enhanced file entry with placeholder
         self.file_var = tk.StringVar()
-        file_frame = ttk.Frame(batch)
+        file_frame = tb.Frame(batch)
         file_frame.grid(row=0, column=1, sticky="ew", padx=(5, 15))
         file_frame.columnconfigure(0, weight=1)
         
-        self.file_entry = ttk.Entry(file_frame, textvariable=self.file_var, width=50)
+        self.file_entry = tb.Entry(file_frame, textvariable=self.file_var, width=50)
         self.file_entry.grid(row=0, column=0, sticky="ew")
         self._set_placeholder(self.file_entry, "Select CSV / TXT / XLSX...")
         
-        ttk.Button(file_frame, text="Browse", command=self._browse).grid(row=0, column=1, padx=(5, 0))
+        tb.Button(file_frame, text="Browse", command=self._browse).grid(row=0, column=1, padx=(5, 0))
         batch.columnconfigure(1, weight=1)
         
         # Enhanced batch buttons  
-        batch_btn_frame = ttk.Frame(batch)
+        batch_btn_frame = tb.Frame(batch)
         batch_btn_frame.grid(row=0, column=2, sticky="e", padx=(15, 0))
         
-        self.btn_batch = ttk.Button(batch_btn_frame, text="Start Processing", 
+        self.btn_batch = tb.Button(batch_btn_frame, text="Start Processing", 
                                    style='Primary.TButton', command=self._start_batch)
         self.btn_batch.pack(side=tk.LEFT, padx=(0, 10))
         
         # Only Providers button (Proxy moved to menu)
-        ttk.Button(batch_btn_frame, text="Providers", 
+        tb.Button(batch_btn_frame, text="Providers", 
                   command=self._configure_providers).pack(side=tk.LEFT)
         
         # IOC limit slider (enhanced)
-        self.limit_frame = ttk.LabelFrame(main, text="Processing Limit", padding=10)
+        self.limit_frame = tb.LabelFrame(main, text="Processing Limit", padding=10)
         self.limit_frame.grid(row=3, column=0, sticky="ew", pady=(0, 15))
         self.limit_frame.columnconfigure(1, weight=1)
         
-        ttk.Label(self.limit_frame, text="IOCs to process:").grid(row=0, column=0, sticky="w")
-        self.limit_scale = ttk.Scale(self.limit_frame, from_=0, to=100, orient='horizontal',
+        tb.Label(self.limit_frame, text="IOCs to process:").grid(row=0, column=0, sticky="w")
+        self.limit_scale = tb.Scale(self.limit_frame, from_=0, to=100, orient='horizontal',
                                     variable=self.ioc_limit, command=self._update_limit_label)
         self.limit_scale.grid(row=0, column=1, sticky="ew", padx=(10, 10))
         
-        self.limit_label = ttk.Label(self.limit_frame, text="All IOCs")
+        self.limit_label = tb.Label(self.limit_frame, text="All IOCs")
         self.limit_label.grid(row=0, column=2, sticky="e")
         
         # Hide limit frame initially
         self.limit_frame.grid_remove()
         
         # Enhanced progress section
-        progress_frame = ttk.LabelFrame(main, text="Progress", padding=10)
+        progress_frame = tb.LabelFrame(main, text="Progress", padding=10)
         progress_frame.grid(row=4, column=0, sticky="ew", pady=(0, 15))
         progress_frame.columnconfigure(0, weight=1)
         
-        self.progress = ttk.Progressbar(progress_frame, style='Text.Horizontal.TProgressbar')
+        self.progress = tb.Progressbar(progress_frame, style='Text.Horizontal.TProgressbar')
         self.progress.grid(row=0, column=0, sticky="ew", pady=(0, 5))
         
         # Stats with enhanced layout
-        stats_frame = ttk.Frame(progress_frame)
+        stats_frame = tb.Frame(progress_frame)
         stats_frame.grid(row=1, column=0, sticky="ew")
-        stats_frame.columnconfigure(4, weight=1)
-        
+        stats_frame.columnconfigure(4, weight=1)        
         self.lab_stats = {}
         for i, stat in enumerate(['threat', 'clean', 'error', 'total']):
-            self.lab_stats[stat] = ttk.Label(stats_frame, text=f"{stat}: 0", 
+            self.lab_stats[stat] = tb.Label(stats_frame, text=f"{stat}: 0", 
                                            font=('TkDefaultFont', 9, 'bold'))
             self.lab_stats[stat].grid(row=0, column=i, padx=(0, 15), sticky="w")
         
         # Enhanced output area with tooltip
-        output_frame = ttk.LabelFrame(main, text="Results", padding=10)
+        output_frame = tb.LabelFrame(main, text="Results", padding=10)
         output_frame.grid(row=5, column=0, sticky="nsew", pady=(0, 10))
         main.rowconfigure(5, weight=1)
         
-        self.out = scrolledtext.ScrolledText(output_frame, height=15, font=('Consolas', 9))
+        # Replace ScrolledText with paginated Tableview
+        tv_columns = ['Type', 'IOC', 'Status', 'Details']
+        tv_data = []
+        self.out = tb.Tableview(output_frame, 
+                               coldata=tv_columns,
+                               rowdata=tv_data,
+                               paginated=True, 
+                               bootstyle="info",
+                               searchable=True,
+                               height=15)
         self.out.pack(fill='both', expand=True)
         TooltipManager.add_tooltip(self.out, "Processing results will appear here")
         
         # Enhanced options
-        options_frame = ttk.Frame(main)
+        options_frame = tb.Frame(main)
         options_frame.grid(row=6, column=0, sticky="ew")
         
         self.show_only = tk.BooleanVar(value=True)
-        ttk.Checkbutton(options_frame, text="Show only threats & errors", 
+        tb.Checkbutton(options_frame, text="Show only threats & errors", 
                        variable=self.show_only).pack(side='left')
-        
-        # Bind Enter key for single IOC check
+          # Bind Enter key for single IOC check
         self.root.bind("<Return>", self._start_single)
         
-        ttk.Label(inp, text="Value").grid(row=0, column=2)
+        tb.Label(inp, text="Value").grid(row=0, column=2)
         self.val = tk.Entry(inp, width=40)
         self.val.grid(row=0, column=3, sticky="ew", padx=5)
         inp.columnconfigure(3, weight=1)
-          # Single IOC buttons
-        btnf = ttk.Frame(inp)
+        
+        # Single IOC buttons
+        btnf = tb.Frame(inp)
         btnf.grid(row=0, column=4, padx=5)
         
-        self.btn_check = ttk.Button(btnf, text="Check", 
+        self.btn_check = tb.Button(btnf, text="Check", 
                                     command=self._start_single)
         self.btn_check.pack(side=tk.LEFT)
-        self.btn_stop = ttk.Button(btnf, text="Stop", style='Bad.TButton', 
+        self.btn_stop = tb.Button(btnf, text="Stop", bootstyle="danger-outline", 
                                   command=self._stop_processing, state='disabled')
         self.btn_stop.pack(side=tk.LEFT, padx=(5, 0))
-        ttk.Button(btnf, text="Clear", command=self._clear).pack(side=tk.LEFT, padx=(5, 0))
+        tb.Button(btnf, text="Clear", command=self._clear).pack(side=tk.LEFT, padx=(5, 0))
         
         # Batch processing
-        batch = ttk.Frame(main)
+        batch = tb.Frame(main)
         batch.grid(row=2, column=0, sticky="ew", pady=5)
         self.file_var = tk.StringVar()
         
-        ttk.Label(batch, text="File:").grid(row=0, column=0)
-        file_entry = ttk.Entry(batch, textvariable=self.file_var, width=40)
+        tb.Label(batch, text="File:").grid(row=0, column=0)
+        file_entry = tb.Entry(batch, textvariable=self.file_var, width=40)
         file_entry.grid(row=0, column=1, sticky="ew", padx=5)
         batch.columnconfigure(1, weight=1)
         
-        ttk.Button(batch, text="Browse", command=self._browse).grid(row=0, column=2, padx=(5, 0))
+        tb.Button(batch, text="Browse", command=self._browse).grid(row=0, column=2, padx=(5, 0))
         
-        self.btn_batch = ttk.Button(batch, text="Start Processing", 
+        self.btn_batch = tb.Button(batch, text="Start Processing", 
                                     command=self._start_batch)
         self.btn_batch.grid(row=0, column=3, padx=(5, 0))
         
         # Configuration buttons
-        config_frame = ttk.Frame(batch)
+        config_frame = tb.Frame(batch)
         config_frame.grid(row=0, column=4, padx=(10, 0))
         
-        ttk.Button(config_frame, text="Providers", style='Provider.TButton',
+        tb.Button(config_frame, text="Providers", style='Provider.TButton',
                   command=self._configure_providers).pack(side='left')
-        ttk.Button(config_frame, text="Proxy", style='Provider.TButton',
+        tb.Button(config_frame, text="Proxy", style='Provider.TButton',
                   command=self._configure_proxy).pack(side='left', padx=(5, 0))
-        self.theme_button = ttk.Button(config_frame, text="🌙", style='Provider.TButton',
+        self.theme_button = tb.Button(config_frame, text="🌙", style='Provider.TButton',
                   command=self._toggle_theme)
         self.theme_button.pack(side='left', padx=(5, 0))
           # Format info label
-        self.format_label = ttk.Label(batch, text="Supported: CSV, TSV, XLSX, TXT", foreground="gray")
+        self.format_label = tb.Label(batch, text="Supported: CSV, TSV, XLSX, TXT", foreground="gray")
         self.format_label.grid(row=1, column=0, columnspan=5, sticky="w", pady=(5,0))
         
         # IOC limit slider (initially hidden)
-        self.limit_frame = ttk.Frame(batch)
+        self.limit_frame = tb.Frame(batch)
         self.limit_frame.grid(row=2, column=0, columnspan=5, sticky="ew", pady=(10,0))
         self.limit_frame.columnconfigure(1, weight=1)
         
-        ttk.Label(self.limit_frame, text="IOCs to process:").grid(row=0, column=0, sticky="w")
+        tb.Label(self.limit_frame, text="IOCs to process:").grid(row=0, column=0, sticky="w")
         
-        self.limit_slider = ttk.Scale(self.limit_frame, from_=1, to=100, orient="horizontal",
+        self.limit_slider = tb.Scale(self.limit_frame, from_=1, to=100, orient="horizontal",
                                      variable=self.ioc_limit, command=self._on_limit_change)
         self.limit_slider.grid(row=0, column=1, sticky="ew", padx=(10,0))
         
-        self.limit_label = ttk.Label(self.limit_frame, text="All IOCs")
+        self.limit_label = tb.Label(self.limit_frame, text="All IOCs")
         self.limit_label.grid(row=0, column=2, sticky="w", padx=(10,0))
         
         # Initially hide the limit frame
         self.limit_frame.grid_remove()
         
         # Progress bar (initially hidden)
-        self.progress_frame = ttk.Frame(main)
+        self.progress_frame = tb.Frame(main)
         self.progress_frame.grid(row=3, column=0, sticky="ew", pady=(10,5))
         self.progress_frame.columnconfigure(0, weight=1)
         
-        self.progress_label = ttk.Label(self.progress_frame, text="")
+        self.progress_label = tb.Label(self.progress_frame, text="")
         self.progress_label.grid(row=0, column=0, sticky="w")
         
-        self.progress = ttk.Progressbar(self.progress_frame, mode="indeterminate")
+        self.progress = tb.Progressbar(self.progress_frame, mode="indeterminate")
         self.progress.grid(row=1, column=0, sticky="ew", pady=(5,0))
         
         # Initially hide progress
         self.progress_frame.grid_remove()
-        
-        # Results
-        res = ttk.LabelFrame(main, text="Results")
+          # Results with Tableview
+        res = tb.LabelFrame(main, text="Results")
         res.grid(row=4, column=0, sticky="nsew")
         main.rowconfigure(4, weight=1)
         
-        self.out = scrolledtext.ScrolledText(res, font=('Consolas', 10), 
-                                           state=tk.DISABLED, wrap=tk.WORD)
+        # Replace ScrolledText with paginated Tableview
+        tv_columns2 = ['Type', 'IOC', 'Status', 'Details']
+        tv_data2 = []
+        self.out = tb.Tableview(res, 
+                               coldata=tv_columns2,
+                               rowdata=tv_data2,
+                               paginated=True, 
+                               bootstyle="info",
+                               searchable=True,
+                               height=12)
         self.out.pack(expand=True, fill='both')
         
-        for t, c in COLORS.items():
-            self.out.tag_configure(t, foreground=c)
-          # Status bar
-        st = ttk.Frame(main)
+        # Status bar
+        st = tb.Frame(main)
         st.grid(row=5, column=0, sticky="ew")
         
-        self.lab_stats = {k: ttk.Label(st, text=f"{k}:0") for k in self.stats}
+        self.lab_stats = {k: tb.Label(st, text=f"{k}:0") for k in self.stats}
         for i, (k, l) in enumerate(self.lab_stats.items()):
             l.grid(row=0, column=i, padx=8, sticky="w")
         
-        checkbox = ttk.Checkbutton(st, text="Show only threats", variable=self.show_only)
+        checkbox = tb.Checkbutton(st, text="Show only threats", variable=self.show_only)
         checkbox.grid(row=0, column=5, padx=20)
         
         self.root.bind("<Return>", self._start_single)
@@ -911,7 +913,7 @@ class IOCCheckerGUI:
         for tag, color in theme['colors'].items():
             self.out.tag_configure(tag, foreground=color)
           # Configure ttk styles for dark mode
-        style = ttk.Style()
+        style = tb.Style()
         if self.current_theme == 'dark':
             style.theme_use('clam')  # Use clam theme as base for dark mode
             
@@ -973,32 +975,31 @@ class IOCCheckerGUI:
             self.out.tag_configure(t, foreground=c)
               # Configure stats labels
         for label in self.lab_stats.values():
-            # ttk.Label doesn't support bg/fg directly - styling is handled by ttk.Style above
+            # tb.Label doesn't support bg/fg directly - styling is handled by tb.Style above
             pass
             
-        # Configure other labels (check if they're tk.Label or ttk.Label)
+        # Configure other labels (check if they're tk.Label or tb.Label)
         if hasattr(self, 'format_info'):
-            if isinstance(self.format_info, ttk.Label):
-                pass  # Styled by ttk.Style
+            if isinstance(self.format_info, tb.Label):
+                pass  # Styled by tb.Style
             else:
                 self.format_info.configure(bg=theme['bg'], fg=theme['fg'])
         if hasattr(self, 'provider_status'):
-            if isinstance(self.provider_status, ttk.Label):
-                pass  # Styled by ttk.Style  
+            if isinstance(self.provider_status, tb.Label):
+                pass  # Styled by tb.Style  
             else:
                 self.provider_status.configure(bg=theme['bg'], fg=theme['fg'])
         if hasattr(self, 'limit_label'):
-            if isinstance(self.limit_label, ttk.Label):
-                pass  # Styled by ttk.Style
+            if isinstance(self.limit_label, tb.Label):
+                pass  # Styled by tb.Style
             else:
                 self.limit_label.configure(bg=theme['bg'], fg=theme['fg'])
         if hasattr(self, 'progress_label'):
-            if isinstance(self.progress_label, ttk.Label):
-                pass  # Styled by ttk.Style
+            if isinstance(self.progress_label, tb.Label):
+                pass  # Styled by tb.Style
             else:
                 self.progress_label.configure(bg=theme['bg'], fg=theme['fg'])
-            
-        # Configure all frames to match theme
+              # Configure all frames to match theme
         for widget in self.root.winfo_children():
             self._configure_widget_theme(widget, theme)
     
@@ -1014,17 +1015,27 @@ class IOCCheckerGUI:
             # Skip styled buttons
             if not hasattr(widget, 'cget') or widget.cget('style') == '':
                 widget.configure(bg=theme['button_bg'], fg=theme['fg'])
-          # Recursively apply to children
+        
+        # Recursively apply to children
         for child in widget.winfo_children():
             self._configure_widget_theme(child, theme)
     
-    def _toggle_theme(self):
-        """Toggle between light and dark themes."""
-        self.current_theme = 'dark' if self.current_theme == 'light' else 'light'
-        self.theme_var.set(self.current_theme)
+    def _toggle_theme(self, theme=None):
+        """Toggle between light and dark themes using ttkbootstrap."""
+        if theme:
+            self.current_theme = theme
+        else:
+            self.current_theme = 'dark' if self.current_theme == 'light' else 'light'
         
-        # Update theme button text
-        self.theme_button.configure(text="☀️" if self.current_theme == 'dark' else "🌙")
+        # Use ttkbootstrap's theme switching
+        if self.current_theme == 'dark':
+            self.style.theme_use('darkly')
+        else:
+            self.style.theme_use('litera')  # Light theme
+        
+        # Update theme button text if it exists
+        if hasattr(self, 'theme_button'):
+            self.theme_button.configure(text="☀️" if self.current_theme == 'dark' else "🌙")
         
         self._apply_theme()
         
@@ -1038,7 +1049,7 @@ class IOCCheckerGUI:
         
         try:
             # Apply theme to frame-like widgets
-            if isinstance(widget, (ttk.Frame, tk.Frame)):
+            if isinstance(widget, (tb.Frame, tk.Frame)):
                 if isinstance(widget, tk.Frame):
                     widget.configure(bg=theme['bg'])
                 
@@ -1485,7 +1496,7 @@ class IOCCheckerGUI:
             self.progress.configure(value=percentage)
             # Update the progress bar text if supported
             try:
-                style = ttk.Style()
+                style = tb.Style()
                 style.configure("text.Horizontal.TProgressbar", text=f"{percentage:.0f}%")
             except:
                 pass  # Fallback if style doesn't support text

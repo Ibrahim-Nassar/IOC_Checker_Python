@@ -1,0 +1,5 @@
+ioc,type,description
+192.168.1.1,ip,Test IP
+malware.example.com,domain,Test domain
+https://evil.com/malware,url,Test URL
+d41d8cd98f00b204e9800998ecf8427e,hash,Test hash

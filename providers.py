@@ -9,9 +9,14 @@ from typing import Optional, Dict, Any
 import aiohttp
 from pathlib import Path
 from dotenv import load_dotenv
+from aiolimiter import AsyncLimiter
 
 # Load .env that sits next to the project's .py files
 load_dotenv(Path(__file__).resolve().parent / ".env")
+
+def _rpm(name: str, default: int) -> int:
+    """Get rate limit from environment variable or return default."""
+    return int(os.getenv(f"{name.upper()}_RPM", default))
 
 __all__ = ['_extract_ip']
 
@@ -108,52 +113,18 @@ def _parse_response(raw_response: str, provider_name: str) -> Dict[str, Any]:
                     return {"status": "n/a", "score": 0, "raw": data}
             except (KeyError, TypeError):
                 return {"status": "n/a", "score": 0, "raw": data}
-        
-        # Default fallback
+          # Default fallback
         return {"status": "clean", "score": 0, "raw": data}
         
     except json.JSONDecodeError:
         return {"status": "n/a", "score": 0, "raw": raw_response}
 
-class TokenBucket:
-    """Rate limiting token bucket implementation."""
-    def __init__(self, cap: int, interval: int):
-        self.cap = cap
-        self.tok = cap
-        self.int = interval
-        self.upd = datetime.datetime.utcnow()
-        self.lock = asyncio.Lock()
-    
-    async def acquire(self) -> None:
-        """Acquire a token, waiting if necessary."""
-        async with self.lock:
-            now = datetime.datetime.utcnow()
-            gain = int((now - self.upd).total_seconds() // self.int)
-            if gain:
-                self.tok = min(self.cap, self.tok + gain)
-                self.upd += datetime.timedelta(seconds=gain * self.int)
-            while self.tok == 0:
-                # Refresh tokens before calculating wait time
-                self._refill()
-                wait = self.int - (datetime.datetime.utcnow() - self.upd).total_seconds()
-                await asyncio.sleep(max(wait, 0.1))
-                self.tok = 1
-                self.upd = datetime.datetime.utcnow()
-            self.tok -= 1
-
-    def _refill(self) -> None:
-        """Refill tokens based on elapsed time."""
-        now = datetime.datetime.utcnow()
-        gain = int((now - self.upd).total_seconds() // self.int)
-        if gain:
-            self.tok = min(self.cap, self.tok + gain)
-            self.upd += datetime.timedelta(seconds=gain * self.int)
 
 class Provider:
     """Base provider class with structured response handling."""
     name: str
     ioc_kinds: tuple[str, ...]
-    bucket: Optional[TokenBucket] = None
+    limiter: Optional[AsyncLimiter] = None
     
     async def query(self, s: aiohttp.ClientSession, t: str, v: str) -> Dict[str, Any]:
         """Query the provider and return structured status."""
@@ -251,21 +222,21 @@ class VirusTotal(Provider):
     """VirusTotal multi-engine antivirus scanner."""
     name, ioc_kinds = "virustotal", ("ip", "domain", "url", "hash")
     key = _key("VIRUSTOTAL_API_KEY")
-    bucket = TokenBucket(4, 60)
+    limiter = AsyncLimiter(_rpm("virustotal", 4), 60)
     
     async def _raw_query(self, s: aiohttp.ClientSession, t: str, v: str) -> str:
         if not self.key:
             return "nokey"
         try:
-            await self.bucket.acquire()
-            if t == "url":
-                encoded_url = base64.urlsafe_b64encode(v.encode()).decode().strip('=')
-                path = f"urls/{encoded_url}"
-            else:
-                path = {"ip": f"ip_addresses/{v}", "domain": f"domains/{v}", "hash": f"files/{v}"}[t]
-            h = HEAD | {"x-apikey": self.key}
-            async with s.get(f"https://www.virustotal.com/api/v3/{path}", headers=h) as r:
-                return await r.text()
+            async with self.limiter:
+                if t == "url":
+                    encoded_url = base64.urlsafe_b64encode(v.encode()).decode().strip('=')
+                    path = f"urls/{encoded_url}"
+                else:
+                    path = {"ip": f"ip_addresses/{v}", "domain": f"domains/{v}", "hash": f"files/{v}"}[t]
+                h = HEAD | {"x-apikey": self.key}
+                async with s.get(f"https://www.virustotal.com/api/v3/{path}", headers=h) as r:
+                    return await r.text()
         except Exception as e:
             log.error(f"VirusTotal query failed: {e}")
             return f"error: {str(e)}"
@@ -274,16 +245,16 @@ class GreyNoise(Provider):
     """GreyNoise internet background noise intelligence."""
     name, ioc_kinds = "greynoise", ("ip",)
     key = _key("GREYNOISE_API_KEY")
-    bucket = TokenBucket(50, 604800)  # 50 requests per week
+    limiter = AsyncLimiter(_rpm("greynoise", 50), 604800)  # 50 requests per week
     
     async def _raw_query(self, s: aiohttp.ClientSession, t: str, v: str) -> str:
         if not self.key:
             return "nokey"
         try:
-            await self.bucket.acquire()
-            h = HEAD | {"key": self.key, "Accept": "application/json"}
-            async with s.get(f"https://api.greynoise.io/v3/community/{v}", headers=h) as r:
-                return await r.text()
+            async with self.limiter:
+                h = HEAD | {"key": self.key, "Accept": "application/json"}
+                async with s.get(f"https://api.greynoise.io/v3/community/{v}", headers=h) as r:
+                    return await r.text()
         except Exception as e:
             log.error(f"GreyNoise query failed: {e}")
             return f"error: {str(e)}"
@@ -292,16 +263,16 @@ class Pulsedive(Provider):
     """Pulsedive threat intelligence platform."""
     name, ioc_kinds = "pulsedive", ("ip", "domain", "url")
     key = _key("PULSEDIVE_API_KEY")
-    bucket = TokenBucket(50, 86400)  # 50 requests per day
+    limiter = AsyncLimiter(_rpm("pulsedive", 50), 86400)  # 50 requests per day
     
     async def _raw_query(self, s: aiohttp.ClientSession, t: str, v: str) -> str:
         if not self.key:
             return "nokey"
         try:
-            await self.bucket.acquire()
-            params = {"indicator": v, "pretty": "1", "key": self.key}
-            async with s.get("https://api.pulsedive.com/info.php", params=params, headers=HEAD) as r:
-                return await r.text()
+            async with self.limiter:
+                params = {"indicator": v, "pretty": "1", "key": self.key}
+                async with s.get("https://api.pulsedive.com/info.php", params=params, headers=HEAD) as r:
+                    return await r.text()
         except Exception as e:
             log.error(f"Pulsedive query failed: {e}")
             return f"error: {str(e)}"
@@ -310,15 +281,15 @@ class Shodan(Provider):
     """Shodan internet-connected device search engine."""
     name, ioc_kinds = "shodan", ("ip",)
     key = _key("SHODAN_API_KEY")
-    bucket = TokenBucket(100, 2592000)  # 100 requests per month
+    limiter = AsyncLimiter(_rpm("shodan", 100), 2592000)  # 100 requests per month
     
     async def _raw_query(self, s: aiohttp.ClientSession, t: str, v: str) -> str:
         if not self.key:
             return "nokey"
         try:
-            await self.bucket.acquire()
-            async with s.get(f"https://api.shodan.io/shodan/host/{v}", params={"key": self.key}, headers=HEAD) as r:
-                return await r.text()
+            async with self.limiter:
+                async with s.get(f"https://api.shodan.io/shodan/host/{v}", params={"key": self.key}, headers=HEAD) as r:
+                    return await r.text()
         except Exception as e:
             log.error(f"Shodan query failed: {e}")
             return f"error: {str(e)}"

@@ -13,13 +13,20 @@ from ioc_types import detect_ioc_type
 
 log = logging.getLogger("loader")
 
-# Try pandas import with fallback
+# Try pandas and polars imports with fallback
 try:
     import pandas as pd
     PANDAS_AVAILABLE = True
 except ImportError:
     PANDAS_AVAILABLE = False
     log.warning("Pandas not available - limited to basic CSV/TXT support")
+
+try:
+    import polars as pl
+    POLARS_AVAILABLE = True
+except ImportError:
+    POLARS_AVAILABLE = False
+    log.warning("Polars not available - falling back to pandas")
 
 
 def _clean_value(value: Any) -> str:
@@ -137,6 +144,80 @@ def _extract_iocs_from_dataframe(df: pd.DataFrame) -> List[Dict[str, str]]:
         # Fallback: scan all cells but be more selective
         log.info("No specific IOC columns identified, scanning all cells with strict filtering")
         for row_idx, row in df.iterrows():
+            for col_name, cell_value in row.items():
+                clean_value = _clean_value(cell_value)
+                if not clean_value or clean_value in seen_values:
+                    continue
+                
+                # Try to detect IOC type
+                ioc_type, normalized = detect_ioc_type(clean_value)
+                if ioc_type and ioc_type != "unknown":
+                    # Apply strict filtering for false positives
+                    if _is_likely_ioc(ioc_type, normalized):
+                        iocs.append({
+                            "value": normalized,
+                            "type": ioc_type,
+                            "original": clean_value,
+                            "source": f"row_{row_idx}_{col_name}"
+                        })
+                        seen_values.add(clean_value)
+                        log.debug(f"Found {ioc_type}: {normalized}")
+    
+    return iocs
+
+
+def _extract_iocs_from_polars_dataframe(df: pl.DataFrame) -> List[Dict[str, str]]:
+    """Extract IOCs from a Polars DataFrame by scanning all cells."""
+    iocs = []
+    seen_values: Set[str] = set()
+    
+    log.info(f"Scanning Polars DataFrame with {df.height} rows and {df.width} columns")
+    
+    # Convert to dicts for easier processing (similar to pandas iterrows)
+    rows = df.to_dicts()
+    
+    # Try to identify IOC value columns first
+    column_names = df.columns
+    ioc_columns = []
+    
+    # Common IOC column names (case-insensitive)
+    ioc_column_patterns = [
+        'ioc', 'ioc_value', 'indicator', 'observable', 'artifact',
+        'url', 'domain', 'ip', 'hash', 'address', 'hostname'
+    ]
+    
+    for col in column_names:
+        col_lower = col.lower()
+        if any(pattern in col_lower for pattern in ioc_column_patterns):
+            ioc_columns.append(col)
+    
+    if ioc_columns:
+        log.info(f"Found likely IOC columns: {ioc_columns}")
+        # Focus on IOC-specific columns
+        for row_idx, row in enumerate(rows):
+            for col_name in ioc_columns:
+                if col_name in row:
+                    clean_value = _clean_value(row[col_name])
+                    if not clean_value or clean_value in seen_values:
+                        continue
+                    
+                    # Try to detect IOC type
+                    ioc_type, normalized = detect_ioc_type(clean_value)
+                    if ioc_type and ioc_type != "unknown":
+                        # Additional filtering for false positives
+                        if _is_likely_ioc(ioc_type, normalized):
+                            iocs.append({
+                                "value": normalized,
+                                "type": ioc_type,
+                                "original": clean_value,
+                                "source": f"row_{row_idx}_{col_name}"
+                            })
+                            seen_values.add(clean_value)
+                            log.debug(f"Found {ioc_type}: {normalized}")
+    else:
+        # Fallback: scan all cells but be more selective
+        log.info("No specific IOC columns identified, scanning all cells with strict filtering")
+        for row_idx, row in enumerate(rows):
             for col_name, cell_value in row.items():
                 clean_value = _clean_value(cell_value)
                 if not clean_value or clean_value in seen_values:
@@ -289,8 +370,7 @@ def load_iocs(file_path: Path) -> List[Dict[str, str]]:
     """
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
-    
-    # Check for supported file formats
+      # Check for supported file formats
     supported_extensions = {'.csv', '.tsv', '.xlsx', '.txt'}
     if file_path.suffix.lower() not in supported_extensions:
         raise ValueError(f"Unsupported file format: {file_path.suffix}. Supported formats: {', '.join(supported_extensions)}")
@@ -300,11 +380,16 @@ def load_iocs(file_path: Path) -> List[Dict[str, str]]:
     iocs = []
     
     try:
-        # Try structured data first (pandas)
-        if PANDAS_AVAILABLE and file_path.suffix.lower() in ['.csv', '.tsv', '.xlsx']:
+        # Try structured data first (prefer Polars for CSV/TSV, fall back to pandas for XLSX)
+        if file_path.suffix.lower() in ['.csv', '.tsv']:
+            if POLARS_AVAILABLE:
+                iocs = _load_with_polars(file_path)
+            elif PANDAS_AVAILABLE:
+                iocs = _load_with_pandas(file_path)
+        elif PANDAS_AVAILABLE and file_path.suffix.lower() == '.xlsx':
             iocs = _load_with_pandas(file_path)
         
-        # Fallback to text processing if no IOCs found or pandas failed
+        # Fallback to text processing if no IOCs found or structured loading failed
         if not iocs:
             iocs = _load_as_text(file_path)
             
@@ -372,6 +457,43 @@ def _load_with_pandas(file_path: Path, ioc_columns: List[str] = None, max_rows: 
         
     except Exception as e:
         log.warning(f"Pandas loading failed: {e}")
+        return []
+
+
+def _load_with_polars(file_path: Path, ioc_columns: List[str] = None, max_rows: int = None) -> List[Dict[str, str]]:
+    """Load structured data using Polars for high-speed CSV processing."""
+    if not POLARS_AVAILABLE:
+        return []
+    
+    try:
+        # Determine separator based on file extension
+        separator = '\t' if file_path.suffix.lower() == '.tsv' else ','
+        
+        # Use Polars streaming CSV reader with string casting for all columns
+        df = pl.read_csv(
+            file_path, 
+            separator=separator,
+            ignore_errors=True,
+            encoding='utf8-lossy'
+        ).with_columns(pl.col("*").cast(pl.Utf8))
+        
+        # Apply row limit if specified
+        if max_rows:
+            df = df.head(max_rows)
+        
+        # Select specific columns if requested
+        if ioc_columns:
+            available_columns = [col for col in ioc_columns if col in df.columns]
+            if available_columns:
+                df = df.select(available_columns)
+        
+        return _extract_iocs_from_polars_dataframe(df)
+                        
+    except Exception as e:
+        log.warning(f"Polars loading failed: {e}, falling back to pandas")
+        # Fall back to pandas if available
+        if PANDAS_AVAILABLE:
+            return _load_with_pandas(file_path, ioc_columns, max_rows)
         return []
 
 

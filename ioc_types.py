@@ -3,7 +3,7 @@ IOC parsing, validation and normalisation.
 Only top-level docstrings are used, no inline comments.
 """
 from __future__ import annotations
-import re, ipaddress, urllib.parse
+import regex as re, ipaddress, urllib.parse
 from typing import Callable, Dict, Tuple
 from providers import _extract_ip
 

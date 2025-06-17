@@ -6,8 +6,9 @@ Async IOC checker with robust UTF-8 handling and comprehensive error management.
 • Cross-platform UTF-8 output
 """
 from __future__ import annotations
-import argparse, asyncio, csv, json, logging, pathlib, sys, aiohttp
+import argparse, asyncio, json, logging, pathlib, sys, aiohttp
 from typing import Dict, Any
+from aiohttp_client_cache import CachedSession, SQLiteBackend
 from ioc_types import detect_ioc_type
 from providers import ALWAYS_ON, RATE_LIMIT
 from reports   import WRITERS
@@ -155,7 +156,9 @@ async def process_file(file_path: str, out: str, rate: bool, selected_providers:
     except (FileNotFoundError, ValueError) as e:
         log.error(f"Failed to load IOCs: {e}")
         print(f"Error: {e}")
-        return    # Process IOCs
+        return
+    
+    # Process IOCs
     results = []
     try:
         conn = aiohttp.TCPConnector(limit_per_host=10, ssl=False, force_close=True)
@@ -166,7 +169,7 @@ async def process_file(file_path: str, out: str, rate: bool, selected_providers:
         return
     
     try:
-        async with aiohttp.ClientSession(connector=conn, timeout=timeout) as sess:
+        async with CachedSession(cache=SQLiteBackend(cache_name=".cache/ioc_cache.sqlite", expire_after=86400), connector=conn, timeout=timeout) as sess:
             for idx, ioc_data in enumerate(iocs, 1):
                 try:
                     # Add progress output for GUI
@@ -267,7 +270,7 @@ def main() -> None:
             conn = aiohttp.TCPConnector(limit_per_host=10, ssl=False, force_close=True)
             timeout = aiohttp.ClientTimeout(total=30, connect=10)
             try:
-                async with aiohttp.ClientSession(connector=conn, timeout=timeout) as s:
+                async with CachedSession(cache=SQLiteBackend(cache_name=".cache/ioc_cache.sqlite", expire_after=86400), connector=conn, timeout=timeout) as s:
                     res = await scan_single(s, a.value, a.rate, selected_providers)
                     print(f"\nIOC  : {res['value']}  ({res['type']})")
                     print("-"*48)

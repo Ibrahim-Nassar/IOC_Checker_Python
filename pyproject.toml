@@ -1,0 +1,33 @@
+[project]
+name = "ioc-checker"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Ibrahim",email = "ibrahim-ehab@live.com"}
+]
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "aiohttp (>=3.12.13,<4.0.0)",
+    "aiohttp-client-cache (>=0.13.0,<0.14.0)",
+    "pandas (>=2.3.0,<3.0.0)",
+    "polars (>=1.30.0,<2.0.0)",
+    "openpyxl (>=3.1.5,<4.0.0)",
+    "python-dotenv (>=1.1.0,<2.0.0)",
+    "regex (>=2024.11.6,<2025.0.0)",
+    "ttkbootstrap (>=1.13.11,<2.0.0)",
+    "aiolimiter (>=1.2.1,<2.0.0)"
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 120
+
+[tool.ruff]
+line-length = 120
+
+[tool.mypy]
+strict = true

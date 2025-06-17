@@ -1,6 +1,0 @@
-aiohttp
-pandas
-openpyxl
-pyinstaller
-python-dotenv
-ttkbootstrap
