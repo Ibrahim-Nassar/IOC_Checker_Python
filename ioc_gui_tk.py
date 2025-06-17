@@ -500,15 +500,14 @@ class DarkModeManager:
     def _detect_system_theme(self):
         """Detect system dark mode preference."""
         try:
-            if sys.platform == "win32":
-                import winreg
-                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, 
-                                   r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
-                value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
-                return "dark" if value == 0 else "light"
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, 
+                               r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
+            value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+            winreg.CloseKey(key)
+            return 'dark' if value == 0 else 'light'
         except:
-            pass
-        return "light"  # Default fallback
+            return 'light'  # Fallback to light theme
     
     def toggle_theme(self):
         """Toggle between light and dark themes."""
@@ -526,7 +525,7 @@ class TooltipManager:
             tooltip.wm_overrideredirect(True)
             tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
             label = tk.Label(tooltip, text=text, background="lightyellow", 
-                           relief="solid", borderwidth=1, font=("TkDefaultFont", 8))
+                           relief="solid", borderwidth=1, font=("Arial", 8))
             label.pack()
             widget.tooltip = tooltip
         
@@ -1425,138 +1424,95 @@ class IOCCheckerGUI:
         else:
             self.limit_label.configure(text=f"{limit} IOCs")
     
-    def _start_single(self, event=None):
-        """Start single IOC check with enhanced UI feedback."""
-        if self.is_processing:
-            return
+    def _add_tooltip(self, widget, text):
+        """Add tooltip to widget using simple hover mechanism."""
+        def on_enter(event):
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
+            tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
+            label = tk.Label(tooltip, text=text, background="lightyellow", 
+                           relief="solid", borderwidth=1, font=("Arial", 8))
+            label.pack()
+            widget.tooltip = tooltip
             
-        ioc_type = self.type_cb.get()
-        ioc_value = self.val.get().strip()
-        
-        if not ioc_value or ioc_value == "Enter IOC value...":
-            messagebox.showwarning("Input Required", "Please enter an IOC value")
-            return
-            
-        self._toggle_processing_state(True)
-        self.total_iocs = 1
-        self.processed_iocs = 0
-        
-        # Clear previous results
-        self.out.delete(1.0, tk.END)
-        self.stats = {'threat': 0, 'clean': 0, 'error': 0, 'total': 0}
-        self._update_stats_display()
-        
-        # Start processing
-        self._run_ioc_check([ioc_value], [ioc_type])
+        def on_leave(event):
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
+                
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
     
-    def _start_batch(self):
-        """Start batch processing with enhanced feedback."""
-        if self.is_processing:
-            return
-            
-        filename = self.file_var.get()
-        if not filename:
-            messagebox.showwarning("File Required", "Please select a file")
-            return
-            
-        self._toggle_processing_state(True)
-        
-        # Determine limit
-        limit = int(self.ioc_limit.get()) if self.ioc_limit.get() > 0 else None
-        
+    def _add_placeholder(self, entry_widget, placeholder_text):
+        """Add placeholder text to entry widget."""
+        def on_focus_in(event):
+            if entry_widget.get() == placeholder_text:
+                entry_widget.delete(0, tk.END)
+                entry_widget.configure(foreground='black')
+                
+        def on_focus_out(event):
+            if not entry_widget.get():
+                entry_widget.insert(0, placeholder_text)
+                entry_widget.configure(foreground='grey')
+                
+        entry_widget.insert(0, placeholder_text)
+        entry_widget.configure(foreground='grey')
+        entry_widget.bind('<FocusIn>', on_focus_in)
+        entry_widget.bind('<FocusOut>', on_focus_out)
+    
+    def _detect_system_theme(self):
+        """Detect system dark mode preference."""
         try:
-            iocs, detected_type = load_iocs(filename, max_rows=limit)
-            self.total_iocs = len(iocs)
-            self.processed_iocs = 0
-            
-            # Clear previous results
-            self.out.delete(1.0, tk.END)
-            self.stats = {'threat': 0, 'clean': 0, 'error': 0, 'total': 0}
-            self._update_stats_display()
-            
-            # Start processing
-            ioc_values = [ioc['value'] for ioc in iocs]
-            ioc_types = [ioc['type'] for ioc in iocs]
-            self._run_ioc_check(ioc_values, ioc_types, batch=True)
-            
-        except Exception as e:
-            self._toggle_processing_state(False)
-            messagebox.showerror("Processing Error", f"Could not process file: {e}")
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, 
+                               r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
+            value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+            winreg.CloseKey(key)
+            return 'dark' if value == 0 else 'light'
+        except:
+            return 'light'  # Fallback to light theme
     
-    def _run_ioc_check(self, ioc_values, ioc_types, batch=False):
-        """Run IOC check subprocess with enhanced monitoring."""
-        def run_subprocess():
-            try:
-                # Build command
-                cmd = [sys.executable, "ioc_checker.py"]
-                
-                if batch:
-                    cmd.extend(["--file", self.file_var.get()])
-                    if self.ioc_limit.get() > 0:
-                        cmd.extend(["--limit", str(self.ioc_limit.get())])
-                else:
-                    cmd.extend(["--type", ioc_types[0], "--value", ioc_values[0]])
-                
-                # Add provider configuration
-                enabled_providers = [p for p, enabled in self.provider_config.items() if enabled]
-                if enabled_providers:
-                    cmd.extend(["--providers"] + enabled_providers)
-                
-                # Start subprocess
-                self.proc = subprocess.Popen(
-                    cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    text=True, bufsize=1, universal_newlines=True
-                )
-                
-                # Read output
-                for line in self.proc.stdout:
-                    self.q.put(line.strip())
-                
-                self.proc.wait()
-                
-            except Exception as e:
-                self.q.put(f"Process error: {e}")
-            finally:
-                self.q.put("✅ Processing completed")
-        
-        threading.Thread(target=run_subprocess, daemon=True).start()
+    def _toggle_theme_menu(self):
+        """Toggle theme via menu and update button text."""
+        self._toggle_theme()
+        # Update menu text
+        current_text = "Theme: Dark" if self.current_theme == 'light' else "Theme: Light"
+        self.theme_menu.entryconfig(2, label=current_text)
     
-    def _stop_processing(self):
-        """Stop current processing with cleanup."""
-        if self.proc:
+    def _update_progress_text(self, percentage):
+        """Update progress bar with percentage text."""
+        if hasattr(self, 'progress'):
+            self.progress.configure(value=percentage)
+            # Update the progress bar text if supported
             try:
-                self.proc.terminate()
-                self.proc.wait(timeout=5)
+                style = ttk.Style()
+                style.configure("text.Horizontal.TProgressbar", text=f"{percentage:.0f}%")
             except:
-                self.proc.kill()
-            finally:
-                self.proc = None
+                pass  # Fallback if style doesn't support text
+    
+    def _disable_action_buttons(self):
+        """Disable primary action buttons during processing."""
+        self.btn_check.configure(state='disabled')
+        self.btn_batch.configure(state='disabled')
+        self.btn_stop.configure(state='normal')
+    
+    def _enable_action_buttons(self):
+        """Re-enable primary action buttons after processing."""
+        self.btn_check.configure(state='normal')
+        self.btn_batch.configure(state='normal')
+        self.btn_stop.configure(state='disabled')
+    
+    def _toggle_processing_state(self, is_processing):
+        """Toggle processing state and update UI accordingly."""
+        self.is_processing = is_processing
         
-        self._toggle_processing_state(False)
-        self.out.insert(tk.END, "\n❌ Processing stopped by user\n", 'error')
-        self.out.see(tk.END)
-    
-    def _configure_providers(self):
-        """Open provider configuration dialog."""
-        dialog = ProviderDlg(self.root, self.provider_config.copy(), self.current_theme)
-        result = dialog.result
-        if result:
-            self.provider_config = result
-            self._update_provider_status()
-    
-    def _configure_proxy(self):
-        """Open proxy configuration dialog (placeholder)."""
-        messagebox.showinfo("Proxy Configuration", 
-                          "Proxy configuration dialog will be implemented here.\n\n"
-                          "This feature allows configuring HTTP/HTTPS proxies "
-                          "for threat intelligence provider requests.")
-    
-    def _update_provider_status(self):
-        """Update provider status display."""
-        enabled_count = sum(1 for enabled in self.provider_config.values() if enabled)
-        total_count = len(self.provider_config)
-        self.provider_status.configure(text=f"Providers: {enabled_count}/{total_count} enabled")
-    
-    def run(self):
-        """Start the GUI application."""
-        self.root.mainloop()
+        if is_processing:
+            self._disable_action_buttons()
+            self.progress.grid()  # Show progress bar
+            self._log("🚀 Starting processing...", "info")
+        else:
+            self._enable_action_buttons()
+            self.progress.grid_remove()  # Hide progress bar
+            self._log("✅ Processing complete.", "clean")
+
+    # ...existing code for other methods...
