@@ -70,7 +70,8 @@ class IOCCheckerGUI:
         self.running = False
         self.show_only = tk.BooleanVar(value=True)
         self.no_virustotal = tk.BooleanVar(value=False)
-        self.stats = {'threat': 0, 'clean': 0, 'error': 0, 'total': 0}        self._build_ui()
+        self.stats = {'threat': 0, 'clean': 0, 'error': 0, 'total': 0}
+        self._build_ui()
         self._poll()
 
     def _build_ui(self):
@@ -120,7 +121,8 @@ class IOCCheckerGUI:
         self.btn_batch = ttk.Button(batch, text="Batch", style='Act.TButton', 
                                    command=self._start_batch)
         self.btn_batch.grid(row=0, column=3, padx=5)
-          res = ttk.LabelFrame(main, text="Results")
+        
+        res = ttk.LabelFrame(main, text="Results")
         res.grid(row=3, column=0, sticky="nsew")
         main.rowconfigure(3, weight=1)
         

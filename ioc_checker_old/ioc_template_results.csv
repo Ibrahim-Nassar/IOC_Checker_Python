@@ -1,4 +1,0 @@
-ioc_type,ioc_value,abuseipdb,otx,threatfox
-ip,8.8.8.8,✅ Whitelisted,✅ Not found,✅ ThreatFox none
-ip,192.168.1.1:8080,ℹ️ Private/Local,❌ 400 Bad Request,✅ ThreatFox none
-domain,example.com,,🚨 Found in 50 pulse(s),✅ ThreatFox none
