@@ -49,13 +49,85 @@ def pytest_collection_modifyitems(items):
 
         # Only patch plain functions (skip classes/coroutines/fixtures etc.)
         if callable(func) and getattr(func, "__name__", "").startswith("test_"):
-
-            import inspect
             if inspect.iscoroutinefunction(func):
-                def _sync_wrapper(*args, __orig=func, **kwargs):
-                    asyncio.run(__orig(*args, **kwargs))
-                item.obj = _sync_wrapper
+                # Only wrap when the test is *not* already marked for asyncio
+                if item.get_closest_marker("asyncio") is None:
+                    def _sync_async(*args, __orig=func, **kwargs):
+                        asyncio.run(__orig(*args, **kwargs))
+                    item.obj = _sync_async
             else:
                 def _wrapper(*args, __orig=func, **kwargs):
                     __orig(*args, **kwargs)  # discard return value
                 item.obj = _wrapper 
+
+# ---------------------------------------------------------------------------
+# Ensure a default event loop exists at collection time on Windows
+# ---------------------------------------------------------------------------
+
+def pytest_configure(config):  # noqa: D401 – simple hook
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop()) 
+
+# ---------------------------------------------------------------------------
+# Guarantee headless-friendly tkinter.Tk during tests (handles late imports)
+# ---------------------------------------------------------------------------
+
+class _StubTk:
+    """Drop-in replacement for tkinter.Tk that does nothing."""
+
+    def __init__(self, *a, **k):
+        self._children = []
+        self.children = {}
+        # ttk relies on master.tk — we point it to self and provide a no-op
+        # ``call`` method that simply returns an empty string.
+        self.tk = self
+        # Required for unique widget path generation
+        self._last_child_ids: dict[str, int] = {}
+        # Root widget path
+        self._w = "."
+
+    # geometry helpers -------------------------------------------------
+    def title(self, *a, **k):
+        pass
+    def geometry(self, *a, **k):
+        pass
+    def resizable(self, *a, **k):
+        pass
+    def minsize(self, *a, **k):
+        pass
+
+    # widget / window helpers -----------------------------------------
+    def withdraw(self, *a, **k):
+        pass
+    def destroy(self, *a, **k):
+        pass
+    def quit(self, *a, **k):
+        pass
+    def winfo_children(self):
+        return self._children
+
+    # minimal Tcl interpreter facade ---------------------------------
+    def call(self, *a, **kw):
+        return ""
+
+# Ensure the replacement is in place *after* sitecustomize ran.
+import tkinter as _tk
+_tk.Tk = _StubTk  # type: ignore[attr-defined]
+
+# Variable stubs -----------------------------------------------------------
+
+class _Var:
+    def __init__(self, master=None, value=None, name=None):
+        self._value = value
+    def get(self):
+        return self._value
+    def set(self, v):
+        self._value = v
+
+_tk.BooleanVar = _Var  # type: ignore[attr-defined]
+_tk.StringVar = _Var  # type: ignore[attr-defined]
+
+# Ensure tkinter thinks a default root exists
+_tk._default_root = _StubTk()  # type: ignore[attr-defined] 

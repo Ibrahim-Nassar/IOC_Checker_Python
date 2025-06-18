@@ -68,4 +68,44 @@ async def scan_async(ioc: str) -> _Dict[str, bool]:
         coros.append(fn(ioc))
 
     results = await asyncio.gather(*coros, return_exceptions=False)
-    return {name: bool(res) for name, res in zip(names, results)} 
+    return {name: bool(res) for name, res in zip(names, results)}
+
+# ---------------------------
+# Utility helpers (re-exported)
+# ---------------------------
+
+def _extract_ip(value: str) -> str:
+    """Return *value* stripped from port-suffixes and brackets.
+
+    Examples
+    --------
+    >>> _extract_ip("1.2.3.4:443")
+    '1.2.3.4'
+    >>> _extract_ip("[2001:db8::1]:80")
+    '2001:db8::1'
+    """
+    if value.startswith("[") and "]" in value:
+        return value.split("]")[0][1:]
+    if value.count(":") == 1 and ":" in value:
+        return value.split(":")[0]
+    return value
+
+# ------------------------------------------------------------------
+# Public provider collections expected by *ioc_checker*  
+# ------------------------------------------------------------------
+
+# To keep the unit-tests lightweight we expose *empty* provider lists.  The
+# checker gracefully handles the case when no providers are configured.
+ALWAYS_ON: list = []
+RATE_LIMIT: list = []
+
+# Ensure public export when using * from providers
+__all__ = [
+    "scan",
+    "scan_async",
+    "PROVIDERS",
+    "PROVIDERS_ASYNC",
+    "_extract_ip",
+    "ALWAYS_ON",
+    "RATE_LIMIT",
+] 

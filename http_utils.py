@@ -12,3 +12,4 @@ def get(url: str, headers=None, params=None, timeout=10):
 def post(url: str, headers=None, data=None, timeout=15):
     with _lock:
         return _session.post(url, headers=headers, data=data, timeout=timeout) 
+    
