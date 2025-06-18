@@ -17,6 +17,9 @@ import json
 from pathlib import Path
 from loader import load_iocs
 # Cache helper (for Clear cache menu action)
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cache
 
 # Import sv-ttk for dark mode support

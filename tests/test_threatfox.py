@@ -1,3 +1,5 @@
+import sys
+sys.path.append('../..')
 from unittest.mock import patch
 import threatfox_api as tfx
 

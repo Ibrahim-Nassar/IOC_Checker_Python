@@ -108,9 +108,26 @@ class _StubTk:
     def winfo_children(self):
         return self._children
 
-    # minimal Tcl interpreter facade ---------------------------------
-    def call(self, *a, **kw):
+    # layout/config helpers used by GUI code -----------------------------
+    def columnconfigure(self, *a, **k):
+        pass
+    def rowconfigure(self, *a, **k):
+        pass
+    def config(self, *a, **k):
+        pass
+    def configure(self, *a, **k):
+        pass
+    def call(self, *a, **k):
         return ""
+    
+    def splitlist(self, v):
+        if v is None or v == "":
+            return []
+        return str(v).split()
+
+    # generic fallback to swallow unexpected attribute access
+    def __getattr__(self, name):
+        return lambda *a, **k: None
 
 # Ensure the replacement is in place *after* sitecustomize ran.
 import tkinter as _tk

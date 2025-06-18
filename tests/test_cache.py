@@ -1,3 +1,5 @@
+import sys
+sys.path.append('../..')
 import cache
 from datetime import timedelta
 

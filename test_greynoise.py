@@ -1,3 +1,5 @@
+import sys
+sys.path.append('..')
 import greynoise_api as g
 from unittest.mock import patch
 
