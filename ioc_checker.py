@@ -251,20 +251,18 @@ def main() -> None:
     # GUI mode
     ap.add_argument("--gui", action="store_true", help="Launch GUI interface")
     
-    a = ap.parse_args()
-    
-    # Handle GUI mode
+    a = ap.parse_args()    # Handle GUI mode
     if a.gui:
         try:
             import ioc_gui_tk
-            ioc_gui_tk.main()
-            return
-        except ImportError:
-            print("Error: GUI dependencies not available. Please install required packages.")
-            sys.exit(1)
-        except Exception as e:
-            print(f"Error starting GUI: {e}")
-            sys.exit(1)
+            app = ioc_gui_tk.IOCCheckerGUI()
+            app.run()
+        except Exception as exc:
+            import traceback
+            import logging
+            logging.error("GUI failed: %s\n%s", exc, traceback.format_exc())
+            sys.exit("Failed to start GUI – see log above.")
+        return
     
     # Build selected providers list
     selected_providers = []
