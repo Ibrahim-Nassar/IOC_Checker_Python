@@ -76,7 +76,7 @@ def test_provider_config(gui):
     """Test that provider configuration works correctly."""
     
     # Test initial configuration - all should be False now
-    expected_providers = ['virustotal', 'abuseipdb', 'otx', 'threatfox', 'urlhaus', 'malwarebazaar', 'greynoise', 'pulsedive', 'shodan']
+    expected_providers = ['virustotal', 'abuseipdb', 'otx', 'threatfox', 'greynoise']
     
     for provider in expected_providers:
         assert provider in gui.provider_config, f"Provider '{provider}' should be in config"
@@ -147,13 +147,13 @@ def test_provider_selection_logic():
         # Test getting selected providers
         gui.provider_config['virustotal'] = True
         gui.provider_config['abuseipdb'] = False
-        gui.provider_config['urlhaus'] = True
+        gui.provider_config['greynoise'] = True
         
         selected = [provider for provider, enabled in gui.provider_config.items() if enabled]
         
         assert 'virustotal' in selected, "VirusTotal should be selected"
         assert 'abuseipdb' not in selected, "AbuseIPDB should not be selected"
-        assert 'urlhaus' in selected, "URLHaus should be selected"
+        assert 'greynoise' in selected, "GreyNoise should be selected"
         
         print("✓ Provider selection logic verified")
         

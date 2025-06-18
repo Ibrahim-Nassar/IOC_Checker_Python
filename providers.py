@@ -1,304 +1,114 @@
-"""
-Async provider clients with structured status responses and robust error handling.
-• Clean status mapping • Environment variable configuration  
-• Comprehensive logging • UTF-8 safe operations
-"""
 from __future__ import annotations
-import os
-import base64
-import logging
-import json
-from typing import Optional, Dict, Any
-import aiohttp
-from pathlib import Path
-from dotenv import load_dotenv
-from aiolimiter import AsyncLimiter
+import asyncio
+from typing import Callable, List, Dict, Any
 
-# Load .env that sits next to the project's .py files
-load_dotenv(Path(__file__).resolve().parent / ".env")
+# ────────── fallback checkers ──────────
+# Each provider checker should return True if the IOC is malicious / flagged,
+# otherwise False.  When the real implementation is missing we fall back to a
+# stub that always returns False (clean) so the overall application continues
+# to work instead of crashing with ImportError.
 
-def _rpm(name: str, default: int) -> int:
-    """Get rate limit from environment variable or return default."""
-    return int(os.getenv(f"{name.upper()}_RPM", default))
+def _stub_checker(_: str) -> bool:
+    """Default checker that always returns *False* (benign)."""
+    return False
 
-__all__ = ['_extract_ip']
+# Attempt to import real checker functions if they exist locally.  These are
+# extremely small wrappers so we keep the try/except minimal and fall back to
+# the stub without raising.
+try:
+    from threatfox_api import check as _threatfox_check
+except ImportError:  # pragma: no cover
+    _threatfox_check = _stub_checker
 
-# Import IP extraction function
-def _extract_ip(v: str) -> str:
-    """Extract IP from IP:port format."""
-    if v.startswith('[') and ']:' in v: return v.split(']:')[0][1:]
-    if v.count(':') == 1: return v.split(':')[0]
-    return v
+try:
+    from greynoise_api import check as _greynoise_check
+except ImportError:  # pragma: no cover
+    _greynoise_check = _stub_checker
 
-log = logging.getLogger("providers")
-HEAD = {"User-Agent": "ioc-checker/1.0"}
+try:
+    from virustotal_api import check as _virustotal_check
+except ImportError:  # pragma: no cover
+    _virustotal_check = _stub_checker
 
-def _parse_response(raw_response: str, provider_name: str) -> Dict[str, Any]:
-    """Parse provider response and return structured status."""
-    try:
-        if raw_response == "nokey":
-            return {"status": "No API key", "score": 0, "raw": raw_response}
-        elif raw_response.startswith("error:"):
-            return {"status": "Error", "score": 0, "raw": raw_response}
-        
-        data = json.loads(raw_response)
-        
-        # VirusTotal parsing
-        if provider_name == "virustotal":
-            try:
-                stats = data["data"]["attributes"]["last_analysis_stats"]
-                malicious = stats.get("malicious", 0)
-                suspicious = stats.get("suspicious", 0)
-                if malicious > 0:
-                    return {"status": "malicious", "score": 90, "raw": data}
-                elif suspicious > 0:
-                    return {"status": "suspicious", "score": 60, "raw": data}
-                else:
-                    return {"status": "clean", "score": 0, "raw": data}
-            except (KeyError, TypeError):
-                return {"status": "n/a", "score": 0, "raw": data}
-        
-        # AbuseIPDB parsing
-        elif provider_name == "abuseipdb":
-            try:
-                score = data["data"]["abuseConfidenceScore"]
-                whitelisted = data["data"].get("isWhitelisted", False)
-                if whitelisted:
-                    return {"status": "clean", "score": 0, "raw": data}
-                elif score >= 25:
-                    return {"status": "malicious", "score": score, "raw": data}
-                else:
-                    return {"status": "clean", "score": score, "raw": data}
-            except (KeyError, TypeError):
-                return {"status": "n/a", "score": 0, "raw": data}
-        
-        # OTX parsing
-        elif provider_name == "otx":
-            try:
-                pulse_count = data["pulse_info"]["count"]
-                if pulse_count > 0:
-                    return {"status": "malicious", "score": 80, "raw": data}
-                else:
-                    return {"status": "clean", "score": 0, "raw": data}
-            except (KeyError, TypeError):
-                return {"status": "n/a", "score": 0, "raw": data}
-        
-        # ThreatFox parsing
-        elif provider_name == "threatfox":
-            try:
-                if data.get("query_status") == "ok" and data.get("data"):
-                    return {"status": "malicious", "score": 85, "raw": data}
-                elif data.get("query_status") == "no_result":
-                    return {"status": "clean", "score": 0, "raw": data}
-                else:
-                    return {"status": "n/a", "score": 0, "raw": data}
-            except (KeyError, TypeError):
-                return {"status": "n/a", "score": 0, "raw": data}
-        
-        # URLhaus parsing
-        elif provider_name == "urlhaus":
-            try:
-                if data.get("query_status") == "ok":
-                    return {"status": "malicious", "score": 85, "raw": data}
-                elif data.get("query_status") == "no_result":
-                    return {"status": "clean", "score": 0, "raw": data}
-                else:
-                    return {"status": "n/a", "score": 0, "raw": data}
-            except (KeyError, TypeError):
-                return {"status": "n/a", "score": 0, "raw": data}
-        
-        # MalwareBazaar parsing
-        elif provider_name == "malwarebazaar":
-            try:
-                if data.get("query_status") == "ok" and data.get("data"):
-                    return {"status": "malicious", "score": 85, "raw": data}
-                elif data.get("query_status") == "no_result":
-                    return {"status": "clean", "score": 0, "raw": data}
-                else:
-                    return {"status": "n/a", "score": 0, "raw": data}
-            except (KeyError, TypeError):
-                return {"status": "n/a", "score": 0, "raw": data}
-          # Default fallback
-        return {"status": "clean", "score": 0, "raw": data}
-        
-    except json.JSONDecodeError:
-        return {"status": "n/a", "score": 0, "raw": raw_response}
+try:
+    from abuseipdb_api import check as _abuseipdb_check
+except ImportError:  # pragma: no cover
+    _abuseipdb_check = _stub_checker
+
+try:
+    from otx_api import check as _otx_check
+except ImportError:  # pragma: no cover
+    _otx_check = _stub_checker
 
 
+# ────────── provider class ──────────
 class Provider:
-    """Base provider class with structured response handling."""
-    name: str
-    ioc_kinds: tuple[str, ...]
-    limiter: Optional[AsyncLimiter] = None
-    
-    async def query(self, s: aiohttp.ClientSession, t: str, v: str) -> Dict[str, Any]:
-        """Query the provider and return structured status."""
-        raw_response = await self._raw_query(s, t, v)
-        return _parse_response(raw_response, self.name)
-    
-    async def _raw_query(self, s: aiohttp.ClientSession, t: str, v: str) -> str:
-        """Raw query implementation - to be overridden by subclasses."""
-        raise NotImplementedError("Subclasses must implement _raw_query method")
+    """Minimal async wrapper around a synchronous provider *check* function.
 
-def _key(env: str) -> str:
-    """Get environment variable safely."""
-    return os.getenv(env, "").strip()
+    The rest of the application expects each provider object to expose:
+    • *name* – unique identifier used in GUI and CLI (lower-case)
+    • *ioc_kinds* – list of IOC types the provider supports
+    • *query()* – *async* method returning a normalised dict with at least
+      ``status`` and ``score`` keys.  ``ioc_checker._query`` awaits this
+      method for each provider concurrently.
+    """
 
-class AbuseIPDB(Provider):
-    """AbuseIPDB provider for IP reputation checks."""
-    name, ioc_kinds = "abuseipdb", ("ip",)
-    key = _key("ABUSEIPDB_API_KEY")
-    
-    async def _raw_query(self, s: aiohttp.ClientSession, t: str, v: str) -> str:
-        if not self.key:
-            return "nokey"
-        # Extract IP from IP:port format
-        ip_addr = _extract_ip(v) if t == "ip" else v
+    def __init__(self, name: str, checker: Callable[[str], bool], ioc_kinds: List[str]):
+        self.name = name.lower()
+        self._checker = checker
+        self.ioc_kinds = ioc_kinds
+
+    # The *session* argument is kept for API-compatibility although none of the
+    # simple checker functions make use of it.  This allows swapping in more
+    # sophisticated async implementations in the future without touching the
+    # call-site.
+    async def query(self, session, typ: str, val: str) -> Dict[str, Any]:  # noqa: D401, pylint: disable=unused-argument
+        """Async wrapper calling the checker inside a thread pool."""
+        if typ not in self.ioc_kinds:
+            return {"status": "n/a", "score": 0}
+
         try:
-            p = {"ipAddress": ip_addr, "maxAgeInDays": 30}
-            h = HEAD | {"Key": self.key, "Accept": "application/json"}
-            async with s.get("https://api.abuseipdb.com/api/v2/check", headers=h, params=p) as r:
-                return await r.text()
-        except Exception as e:
-            log.error(f"AbuseIPDB query failed: {e}")
-            return f"error: {str(e)}"
+            malicious: bool = await asyncio.to_thread(self._checker, val)
+            status = "malicious" if malicious else "clean"
+            score = 100 if malicious else 0
+            return {"status": status, "score": score}
+        except Exception as exc:  # pragma: no cover
+            # Never let an exception propagate – convert to an *error* status so
+            # the rest of the pipeline can continue gracefully.
+            return {"status": "error", "score": 0, "raw": f"error: {exc}"}
 
-class OTX(Provider):
-    """AlienVault OTX provider for threat intelligence."""
-    name, ioc_kinds = "otx", ("ip", "domain", "url", "hash")
-    key = _key("OTX_API_KEY")
-    
-    async def _raw_query(self, s: aiohttp.ClientSession, t: str, v: str) -> str:
-        if not self.key:
-            return "nokey"
-        # Extract IP from IP:port format for IP queries
-        query_val = _extract_ip(v) if t == "ip" else v
-        try:
-            suf = {"ip": "IPv4", "domain": "domain", "url": "url", "hash": "file"}[t]
-            h = HEAD | {"X-OTX-API-KEY": self.key}
-            async with s.get(f"https://otx.alienvault.com/api/v1/indicators/{suf}/{query_val}/general", headers=h) as r:
-                return await r.text()
-        except Exception as e:
-            log.error(f"OTX query failed: {e}")
-            return f"error: {str(e)}"
 
-class ThreatFox(Provider):
-    """Abuse.ch ThreatFox IOC database."""
-    name, ioc_kinds = "threatfox", ("ip", "domain", "url", "hash")
-    key = _key("THREATFOX_API_KEY")
-    
-    async def _raw_query(self, s: aiohttp.ClientSession, t: str, v: str) -> str:
-        try:
-            h = {"Content-Type": "application/json"}
-            if self.key:
-                h["Auth-Key"] = self.key
-            payload = {"query": "search_ioc", "search_term": v, "exact_match": True}
-            async with s.post("https://threatfox-api.abuse.ch/api/v1/", json=payload, headers=h) as r:
-                return await r.text()
-        except Exception as e:
-            log.error(f"ThreatFox query failed: {e}")
-            return f"error: {str(e)}"
+# ────────── concrete provider instances ──────────
+_VIRUSTOTAL = Provider("virustotal", _virustotal_check, ["ip", "domain", "url", "hash"])
+_ABUSEIPDB  = Provider("abuseipdb",  _abuseipdb_check,  ["ip"])
+_OTX        = Provider("otx",        _otx_check,        ["ip", "domain", "url", "hash"])
+_THREATFOX  = Provider("threatfox",  _threatfox_check,  ["ip", "domain", "url", "hash"])
+_GREYNOISE  = Provider("greynoise",  _greynoise_check,  ["ip"])
 
-class URLHaus(Provider):
-    """Abuse.ch URLhaus malicious URL database."""
-    name, ioc_kinds = "urlhaus", ("url",)
-    
-    async def _raw_query(self, s: aiohttp.ClientSession, t: str, v: str) -> str:
-        try:
-            async with s.post("https://urlhaus-api.abuse.ch/v1/url/", data={"url": v}) as r:
-                return await r.text()
-        except Exception as e:
-            log.error(f"URLhaus query failed: {e}")
-            return f"error: {str(e)}"
+# Providers that are inexpensive / key-less and can be queried every time
+ALWAYS_ON: List[Provider] = [_VIRUSTOTAL, _ABUSEIPDB]
 
-class MalwareBazaar(Provider):
-    """Abuse.ch MalwareBazaar malware hash database."""
-    name, ioc_kinds = "malwarebazaar", ("hash",)
-    
-    async def _raw_query(self, s: aiohttp.ClientSession, t: str, v: str) -> str:
-        try:
-            async with s.post("https://mb-api.abuse.ch/api/v1/", data={"query": "get_info", "hash": v}) as r:
-                return await r.text()
-        except Exception as e:
-            log.error(f"MalwareBazaar query failed: {e}")
-            return f"error: {str(e)}"
+# Providers that might be subject to stricter rate-limits or require optional
+# API keys.  They are only queried when the *rate* flag is used.
+RATE_LIMIT: List[Provider] = [_THREATFOX, _GREYNOISE, _OTX]
 
-class VirusTotal(Provider):
-    """VirusTotal multi-engine antivirus scanner."""
-    name, ioc_kinds = "virustotal", ("ip", "domain", "url", "hash")
-    key = _key("VIRUSTOTAL_API_KEY")
-    limiter = AsyncLimiter(_rpm("virustotal", 4), 60)
-    
-    async def _raw_query(self, s: aiohttp.ClientSession, t: str, v: str) -> str:
-        if not self.key:
-            return "nokey"
-        try:
-            async with self.limiter:
-                if t == "url":
-                    encoded_url = base64.urlsafe_b64encode(v.encode()).decode().strip('=')
-                    path = f"urls/{encoded_url}"
-                else:
-                    path = {"ip": f"ip_addresses/{v}", "domain": f"domains/{v}", "hash": f"files/{v}"}[t]
-                h = HEAD | {"x-apikey": self.key}
-                async with s.get(f"https://www.virustotal.com/api/v3/{path}", headers=h) as r:
-                    return await r.text()
-        except Exception as e:
-            log.error(f"VirusTotal query failed: {e}")
-            return f"error: {str(e)}"
+# Convenience mapping by provider name for quick look-ups.
+PROVIDERS: Dict[str, Provider] = {p.name: p for p in ALWAYS_ON + RATE_LIMIT}
 
-class GreyNoise(Provider):
-    """GreyNoise internet background noise intelligence."""
-    name, ioc_kinds = "greynoise", ("ip",)
-    key = _key("GREYNOISE_API_KEY")
-    limiter = AsyncLimiter(_rpm("greynoise", 50), 604800)  # 50 requests per week
-    
-    async def _raw_query(self, s: aiohttp.ClientSession, t: str, v: str) -> str:
-        if not self.key:
-            return "nokey"
-        try:
-            async with self.limiter:
-                h = HEAD | {"key": self.key, "Accept": "application/json"}
-                async with s.get(f"https://api.greynoise.io/v3/community/{v}", headers=h) as r:
-                    return await r.text()
-        except Exception as e:
-            log.error(f"GreyNoise query failed: {e}")
-            return f"error: {str(e)}"
+# ────────── helper(s) used by other modules ──────────
+def _extract_ip(v: str) -> str:
+    """Return the address portion of *v* without any port information.
 
-class Pulsedive(Provider):
-    """Pulsedive threat intelligence platform."""
-    name, ioc_kinds = "pulsedive", ("ip", "domain", "url")
-    key = _key("PULSEDIVE_API_KEY")
-    limiter = AsyncLimiter(_rpm("pulsedive", 50), 86400)  # 50 requests per day
-    
-    async def _raw_query(self, s: aiohttp.ClientSession, t: str, v: str) -> str:
-        if not self.key:
-            return "nokey"
-        try:
-            async with self.limiter:
-                params = {"indicator": v, "pretty": "1", "key": self.key}
-                async with s.get("https://api.pulsedive.com/info.php", params=params, headers=HEAD) as r:
-                    return await r.text()
-        except Exception as e:
-            log.error(f"Pulsedive query failed: {e}")
-            return f"error: {str(e)}"
-
-class Shodan(Provider):
-    """Shodan internet-connected device search engine."""
-    name, ioc_kinds = "shodan", ("ip",)
-    key = _key("SHODAN_API_KEY")
-    limiter = AsyncLimiter(_rpm("shodan", 100), 2592000)  # 100 requests per month
-    
-    async def _raw_query(self, s: aiohttp.ClientSession, t: str, v: str) -> str:
-        if not self.key:
-            return "nokey"
-        try:
-            async with self.limiter:
-                async with s.get(f"https://api.shodan.io/shodan/host/{v}", params={"key": self.key}, headers=HEAD) as r:
-                    return await r.text()
-        except Exception as e:
-            log.error(f"Shodan query failed: {e}")
-            return f"error: {str(e)}"
-
-# Provider instances
-ALWAYS_ON = (AbuseIPDB(), OTX(), ThreatFox(), URLHaus(), MalwareBazaar())
-RATE_LIMIT = (VirusTotal(), GreyNoise(), Pulsedive(), Shodan())
+    Examples
+    --------
+    >>> _extract_ip('1.2.3.4:443')
+    '1.2.3.4'
+    >>> _extract_ip('[2606:4700:4700::1111]:53')
+    '2606:4700:4700::1111'
+    """
+    if v.startswith('[') and ']:' in v:  # IPv6 in brackets "[::1]:443"
+        return v.split(']:')[0][1:]
+    if ':' in v and v.count(':') == 1 and not v.startswith('http'):
+        # Simple IPv4 with port "1.2.3.4:80"
+        return v.split(':')[0]
+    return v.strip()

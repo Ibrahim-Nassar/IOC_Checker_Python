@@ -298,7 +298,7 @@ async def process_file(file_path: str, out: str, rate: bool, selected_providers:
                     print()  # Empty line for readability
                     
                     # Add small delay to avoid overwhelming providers
-                    rate_limited = {"virustotal", "greynoise", "pulsedive", "shodan"}
+                    rate_limited = {"virustotal", "greynoise"}
                     if rate or (selected_providers and any(p in rate_limited for p in selected_providers)):
                         await asyncio.sleep(0.1)
                     
@@ -414,8 +414,6 @@ def main() -> None:
     # Individual provider selection
     ap.add_argument("--virustotal", action="store_true", help="Use VirusTotal")
     ap.add_argument("--greynoise", action="store_true", help="Use GreyNoise")
-    ap.add_argument("--pulsedive", action="store_true", help="Use Pulsedive")
-    ap.add_argument("--shodan", action="store_true", help="Use Shodan")
     
     # Allow explicit provider list from GUI
     ap.add_argument("--providers", help="Comma-separated list of providers to use")
@@ -447,11 +445,7 @@ def main() -> None:
         if a.virustotal:
             selected_providers.append("virustotal")
         if a.greynoise:
-            selected_providers.append("greynoise")  
-        if a.pulsedive:
-            selected_providers.append("pulsedive")
-        if a.shodan:
-            selected_providers.append("shodan")
+            selected_providers.append("greynoise")
           # If no specific providers selected, use default behavior
         if not selected_providers:
             selected_providers = None

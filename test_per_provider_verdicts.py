@@ -17,7 +17,6 @@ def test_provider_verdict_aggregation():
     provider_results_malicious = {
         "virustotal": {"status": "malicious", "score": 90},
         "abuseipdb": {"status": "malicious", "score": 75},
-        "shodan": {"status": "clean", "score": 0},
         "greynoise": {"status": "suspicious", "score": 60}
     }
     
@@ -27,7 +26,6 @@ def test_provider_verdict_aggregation():
     assert "virustotal" in verdict_info["flagged_by"], "VirusTotal should be in flagged_by"
     assert "abuseipdb" in verdict_info["flagged_by"], "AbuseIPDB should be in flagged_by"
     assert "greynoise" in verdict_info["flagged_by"], "GreyNoise should be in flagged_by (suspicious counts as flagged)"
-    assert "shodan" not in verdict_info["flagged_by"], "Shodan should not be in flagged_by"
     assert verdict_info["flagged_count"] == 3, "Should have 3 providers flagging"
     
     summary = format_verdict_summary(verdict_info)
@@ -39,8 +37,7 @@ def test_provider_verdict_aggregation():
     # Test case 2: Clean IOC
     provider_results_clean = {
         "virustotal": {"status": "clean", "score": 0},
-        "abuseipdb": {"status": "clean", "score": 0},
-        "shodan": {"status": "clean", "score": 0}
+        "abuseipdb": {"status": "clean", "score": 0}
     }
     
     verdict_info_clean = aggregate_provider_verdicts(provider_results_clean)
@@ -57,14 +54,13 @@ def test_provider_verdict_aggregation():
     # Test case 3: Error cases
     provider_results_error = {
         "virustotal": {"status": "error", "score": 0},
-        "abuseipdb": {"status": "n/a", "score": 0},
-        "shodan": {"status": "error", "score": 0}
+        "abuseipdb": {"status": "n/a", "score": 0}
     }
     
     verdict_info_error = aggregate_provider_verdicts(provider_results_error)
     
     assert verdict_info_error["overall_verdict"] == "error", "Should be error when all providers fail"
-    assert len(verdict_info_error["error_providers"]) == 3, "All providers should be in error list"
+    assert len(verdict_info_error["error_providers"]) == 2, "All providers should be in error list"
     
     print("✓ Test 3 passed: Error case aggregation")
     
@@ -72,7 +68,6 @@ def test_provider_verdict_aggregation():
     provider_results_mixed = {
         "virustotal": {"status": "malicious", "score": 85},
         "abuseipdb": {"status": "clean", "score": 0},
-        "shodan": {"status": "error", "score": 0},
         "greynoise": {"status": "clean", "score": 0}
     }
     
@@ -128,7 +123,6 @@ def test_mock_provider_checking():
     # Mock provider results for testing
     mock_results = {
         "virustotal": {"status": "malicious", "score": 95},
-        "shodan": {"status": "clean", "score": 0},
         "greynoise": {"status": "malicious", "score": 80},
         "abuseipdb": {"status": "clean", "score": 5}
     }
@@ -149,7 +143,6 @@ def test_mock_provider_checking():
     assert "Malicious" in summary, "Summary should indicate malicious"
     assert "virustotal" in summary.lower(), "Summary should mention VirusTotal"
     assert "greynoise" in summary.lower(), "Summary should mention GreyNoise"
-    assert "shodan" not in summary.lower(), "Summary should not mention Shodan (clean result)"
     
     print("✓ Mock provider checking test passed")
 

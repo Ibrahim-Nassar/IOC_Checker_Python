@@ -131,13 +131,13 @@ def test_provider_selection_dialog():
         providers_info = [
             ("virustotal", "VirusTotal", "VIRUSTOTAL_API_KEY", "Universal threat intelligence", ["ip", "domain", "url", "hash"]),
             ("abuseipdb", "AbuseIPDB", "ABUSEIPDB_API_KEY", "IP reputation service", ["ip"]),
-            ("urlhaus", "URLHaus", None, "Free URL database", ["url"])
+            ("greynoise", "GreyNoise", None, "Background noise analysis", ["ip"])
         ]
         
         current_selection = {
             "virustotal": True,
             "abuseipdb": False,
-            "urlhaus": True
+            "greynoise": False
         }
         
         dialog = ProviderSelectionDialog(root, providers_info, current_selection)
@@ -227,7 +227,7 @@ def test_main_gui_integration():
         
         # Test that provider info is properly configured
         provider_names = [p[0] for p in gui.providers_info]
-        expected_providers = ["virustotal", "abuseipdb", "otx", "threatfox", "urlhaus", "malwarebazaar", "greynoise", "pulsedive", "shodan"]
+        expected_providers = ["virustotal", "abuseipdb", "otx", "threatfox", "greynoise"]
         
         for provider in expected_providers:
             assert provider in provider_names, f"Provider {provider} missing from GUI"
