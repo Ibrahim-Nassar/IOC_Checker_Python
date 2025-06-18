@@ -6,9 +6,38 @@ from __future__ import annotations
 import csv
 import pathlib
 import logging
+import os
 from typing import List, Dict, Any
 
 log = logging.getLogger("reports")
+
+CSV_FILENAME = "results.csv"
+
+def write_csv(results: List[Dict[str, str]]) -> str:
+    """
+    Write the list of result dictionaries to a CSV file.
+    Returns the file path of the written CSV.
+    """
+    if not results:
+        return ""
+    
+    # Determine all possible fieldnames from all result dicts
+    all_fieldnames = set()
+    for result in results:
+        all_fieldnames.update(result.keys())
+    
+    # Convert to sorted list for consistent column order
+    fieldnames = sorted(list(all_fieldnames))
+    
+    # Open with newline='' to avoid extra CR on Windows, use utf-8-sig for BOM
+    with open(CSV_FILENAME, mode="w", newline="", encoding="utf-8-sig") as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in results:
+            # Fill missing fields with empty strings
+            complete_row = {field: row.get(field, '') for field in fieldnames}
+            writer.writerow(complete_row)
+    return os.path.abspath(CSV_FILENAME)
 
 def write_clean_csv(path: pathlib.Path, results: List[Dict[str, Any]]) -> None:
     """Write clean CSV report with structured columns for only active providers."""

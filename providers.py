@@ -36,8 +36,10 @@ HEAD = {"User-Agent": "ioc-checker/1.0"}
 def _parse_response(raw_response: str, provider_name: str) -> Dict[str, Any]:
     """Parse provider response and return structured status."""
     try:
-        if raw_response.startswith("error:") or raw_response == "nokey":
-            return {"status": "n/a", "score": 0, "raw": raw_response}
+        if raw_response == "nokey":
+            return {"status": "No API key", "score": 0, "raw": raw_response}
+        elif raw_response.startswith("error:"):
+            return {"status": "Error", "score": 0, "raw": raw_response}
         
         data = json.loads(raw_response)
         
