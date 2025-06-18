@@ -181,3 +181,7 @@ Desktop.ini
 *.orig
 *.bak
 pycache/
+
+# ────────── project-specific cache / build ──────────
+*.sqlite
+dist/

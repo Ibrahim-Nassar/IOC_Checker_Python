@@ -1,5 +1,5 @@
 import os
-import requests
+from cache import session as requests
 import asyncio
 from async_http import post
 

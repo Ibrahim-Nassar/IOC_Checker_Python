@@ -16,6 +16,8 @@ import threading
 import json
 from pathlib import Path
 from loader import load_iocs
+# Cache helper (for Clear cache menu action)
+import cache
 
 # Import sv-ttk for dark mode support
 try:
@@ -344,6 +346,7 @@ class IOCCheckerGUI:
         settings_menu.add_command(label="API Keys...", command=self._configure_api_keys)
         settings_menu.add_separator()
         settings_menu.add_command(label="Providers...", command=self._configure_providers)
+        settings_menu.add_command(label="Clear cache", command=lambda: cache.clear())
         
         # Help menu
         help_menu = tk.Menu(menubar, tearoff=0)
