@@ -13,7 +13,17 @@ import re
 import logging
 import asyncio
 import threading
+import json
+from pathlib import Path
 from loader import load_iocs
+
+# Import sv-ttk for dark mode support
+try:
+    import sv_ttk
+    SV_TTK_AVAILABLE = True
+except ImportError:
+    SV_TTK_AVAILABLE = False
+    print("Warning: sv-ttk not available, dark mode disabled")
 
 # For now, disable ttkbootstrap to ensure compatibility
 TTKBOOTSTRAP_AVAILABLE = False
@@ -55,12 +65,18 @@ class IOCCheckerGUI:
             self.root.geometry("1200x800")
             self.root.minsize(800, 600)
             
+            # Initialize settings system first
+            self.settings_file = Path(os.path.expanduser("~")) / ".ioc_checker_settings.json"
+            self.settings = self._load_settings()
+            
             # Initialize processing variables first (before UI setup)
             self.process = None
             self.q = queue.Queue()
             self.stats = {'threat': 0, 'clean': 0, 'error': 0, 'total': 0}
-            self.processing = False              # Provider configuration - no providers selected by default
-            self.provider_config = {
+            self.processing = False              
+            
+            # Load provider configuration from settings
+            self.provider_config = self.settings.get('provider_config', {
                 'virustotal': False,
                 'abuseipdb': False,
                 'otx': False,
@@ -70,13 +86,16 @@ class IOCCheckerGUI:
                 'greynoise': False,
                 'pulsedive': False,
                 'shodan': False,
-            }
-              # API key storage (loaded from environment or .env file)
+            })
+            
+            # API key storage (loaded from environment or .env file) - includes all providers
             self.api_keys = {
                 'virustotal': os.getenv('VIRUSTOTAL_API_KEY', ''),
                 'abuseipdb': os.getenv('ABUSEIPDB_API_KEY', ''),
                 'otx': os.getenv('OTX_API_KEY', ''),
                 'threatfox': os.getenv('THREATFOX_API_KEY', ''),
+                'urlhaus': os.getenv('URLHAUS_API_KEY', ''),  # Added URLHaus
+                'malwarebazaar': os.getenv('MALWAREBAZAAR_API_KEY', ''),  # Added MalwareBazaar
                 'greynoise': os.getenv('GREYNOISE_API_KEY', ''),
                 'pulsedive': os.getenv('PULSEDIVE_API_KEY', ''),
                 'shodan': os.getenv('SHODAN_API_KEY', '')
@@ -88,16 +107,20 @@ class IOCCheckerGUI:
                 ("abuseipdb", "AbuseIPDB", "ABUSEIPDB_API_KEY", "IP reputation and abuse reports", ["ip"]),
                 ("otx", "AlienVault OTX", "OTX_API_KEY", "Open threat exchange platform", ["ip", "domain", "url", "hash"]),
                 ("threatfox", "ThreatFox", "THREATFOX_API_KEY", "Malware IOCs from abuse.ch", ["ip", "domain", "url", "hash"]),
-                ("urlhaus", "URLHaus", None, "Malicious URL database (abuse.ch)", ["url"]),
-                ("malwarebazaar", "MalwareBazaar", None, "Malware sample database (abuse.ch)", ["hash"]),
+                ("urlhaus", "URLHaus", "URLHAUS_API_KEY", "Malicious URL database (abuse.ch)", ["url"]),  # Updated to show API key option
+                ("malwarebazaar", "MalwareBazaar", "MALWAREBAZAAR_API_KEY", "Malware sample database (abuse.ch)", ["hash"]),  # Updated to show API key option
                 ("greynoise", "GreyNoise", "GREYNOISE_API_KEY", "Internet background noise analysis", ["ip"]),
                 ("pulsedive", "Pulsedive", "PULSEDIVE_API_KEY", "Threat intelligence platform", ["ip", "domain", "url"]),
                 ("shodan", "Shodan", "SHODAN_API_KEY", "Internet-connected devices search", ["ip"]),
             ]
             
-            # UI state variables
-            self.show_only = tk.BooleanVar(value=True)
+            # UI state variables - load from settings
+            self.show_only = tk.BooleanVar(value=self.settings.get('show_threats_only', False))
+            self.show_threats_var = tk.BooleanVar(value=self.settings.get('show_threats_only', False))
             self.file_var = tk.StringVar()
+            
+            # Theme state - load from settings
+            self.dark_mode = tk.BooleanVar(value=self.settings.get('dark_mode', False))
             
             # Safe setup methods with error handling
             try:
@@ -116,12 +139,265 @@ class IOCCheckerGUI:
                 log.error(f"UI building failed: {e}")
                 raise
                 
+            # Apply saved theme
+            self._apply_theme()
+                
+            # Enable mouse wheel scrolling throughout the app
+            self._bind_mousewheel(self.root)
+            
             # Start polling for subprocess output
             self._poll_queue()
             
         except Exception as e:
             log.error(f"GUI initialization failed: {e}")
             raise
+
+    def _load_settings(self):
+        """Load user settings from the JSON file."""
+        if not self.settings_file.exists():
+            # Create default settings if file doesn't exist
+            default_settings = {
+                "provider_config": {
+                    "virustotal": False,
+                    "abuseipdb": False,
+                    "otx": False,
+                    "threatfox": False,
+                    "urlhaus": False,
+                    "malwarebazaar": False,
+                    "greynoise": False,
+                    "pulsedive": False,
+                    "shodan": False
+                },
+                "show_threats_only": False,
+                "dark_mode": False
+            }
+            self._save_settings(default_settings)
+            return default_settings
+        
+        try:
+            with open(self.settings_file, 'r') as f:
+                settings = json.load(f)
+                log.info(f"Loaded settings: {settings}")
+                return settings
+        except Exception as e:
+            log.error(f"Failed to load settings: {e}, using defaults")
+            return {
+                "provider_config": {
+                    "virustotal": False,
+                    "abuseipdb": False,
+                    "otx": False,
+                    "threatfox": False,
+                    "urlhaus": False,
+                    "malwarebazaar": False,
+                    "greynoise": False,
+                    "pulsedive": False,
+                    "shodan": False
+                },
+                "show_threats_only": False,
+                "dark_mode": False
+            }
+
+    def _save_settings(self, settings):
+        """Save user settings to the JSON file."""
+        try:
+            with open(self.settings_file, 'w') as f:
+                json.dump(settings, f, indent=4)
+                log.info(f"Saved settings: {settings}")
+        except Exception as e:
+            log.error(f"Failed to save settings: {e}")
+
+    def _set_light_mode(self):
+        """Set the theme to light mode."""
+        self.dark_mode.set(False)
+        self._apply_theme()
+        
+        # Save theme setting
+        self.settings['dark_mode'] = False
+        self._save_settings(self.settings)
+        
+        # Update button states
+        self._update_theme_buttons()
+
+    def _set_dark_mode(self):
+        """Set the theme to dark mode."""
+        self.dark_mode.set(True)
+        self._apply_theme()
+        
+        # Save theme setting  
+        self.settings['dark_mode'] = True
+        self._save_settings(self.settings)
+        
+        # Update button states
+        self._update_theme_buttons()
+
+    def _update_theme_buttons(self):
+        """Update the states of the theme toggle buttons."""
+        if hasattr(self, 'btn_dark') and hasattr(self, 'btn_light'):
+            if self.dark_mode.get():
+                # Dark mode is active - update button text to show active state
+                self.btn_dark.configure(text="🌙✓")
+                self.btn_light.configure(text="☀")
+            else:
+                # Light mode is active - update button text to show active state
+                self.btn_light.configure(text="☀✓")
+                self.btn_dark.configure(text="🌙")
+
+    def _apply_theme(self):
+        """Apply the current theme setting."""
+        if SV_TTK_AVAILABLE:
+            try:
+                if self.dark_mode.get():
+                    sv_ttk.set_theme("dark")
+                else:
+                    sv_ttk.set_theme("light")
+                    
+                # Update button states after theme change
+                if hasattr(self, 'btn_dark') and hasattr(self, 'btn_light'):
+                    self._update_theme_buttons()
+                    
+            except Exception as e:
+                log.warning(f"Failed to apply sv-ttk theme: {e}")
+                # Fallback to basic tkinter theme changes
+                self._apply_basic_theme()
+        else:
+            # Use basic theme changes when sv-ttk is not available
+            self._apply_basic_theme()
+
+    def _apply_basic_theme(self):
+        """Apply basic theme changes without sv-ttk."""
+        if self.dark_mode.get():
+            # Dark theme colors
+            bg_color = '#2b2b2b'
+            fg_color = '#ffffff'
+            select_bg = '#404040'
+            entry_bg = '#3b3b3b'
+            
+            # Apply to root window
+            self.root.configure(bg=bg_color)
+            
+            # Apply to all widgets recursively
+            self._apply_theme_to_widgets(self.root, bg_color, fg_color, select_bg, entry_bg)
+        else:
+            # Light theme (default)
+            bg_color = '#f0f0f0'
+            fg_color = '#000000'
+            select_bg = '#0078d4'
+            entry_bg = '#ffffff'
+            
+            # Reset to default colors
+            self.root.configure(bg=bg_color)
+            self._apply_theme_to_widgets(self.root, bg_color, fg_color, select_bg, entry_bg)
+
+    def _apply_theme_to_widgets(self, widget, bg_color, fg_color, select_bg, entry_bg):
+        """Recursively apply theme colors to all widgets."""
+        try:
+            widget_class = widget.winfo_class()
+            
+            if widget_class in ['Frame', 'Toplevel']:
+                widget.configure(bg=bg_color)
+            elif widget_class in ['Label']:
+                widget.configure(bg=bg_color, fg=fg_color)
+            elif widget_class in ['Entry']:
+                widget.configure(bg=entry_bg, fg=fg_color, insertbackground=fg_color)
+            elif widget_class in ['Text']:
+                widget.configure(bg=entry_bg, fg=fg_color, insertbackground=fg_color)
+            elif widget_class in ['Listbox']:
+                widget.configure(bg=entry_bg, fg=fg_color, selectbackground=select_bg)
+                
+            # Recursively apply to children
+            for child in widget.winfo_children():
+                self._apply_theme_to_widgets(child, bg_color, fg_color, select_bg, entry_bg)
+                
+        except Exception as e:
+            # Some widgets might not support certain options
+            pass
+
+    def _apply_theme(self):
+        """Apply the saved theme setting."""
+        if self.dark_mode.get():
+            self.root.tk_setPalette(background='#2E2E2E')
+            self.root.option_add('*TButton*highlightBackground', '#2E2E2E')
+            self.root.option_add('*TButton*highlightColor', '#2E2E2E')
+            self.root.option_add('*TButton*borderWidth', 1)
+            self.root.option_add('*TButton*relief', 'flat')
+            self.root.option_add('*TButton*padding', [5, 5])
+            
+            # Update all buttons to use the new theme
+            for button in self.root.winfo_children():
+                if isinstance(button, ttk.Button):
+                    button.state(['!pressed'])
+                    button.configure(style='TButton')
+        else:
+            # Reset to default theme
+            self.root.tk_setPalette(background='')
+            self.root.option_add('*TButton*highlightBackground', '')
+            self.root.option_add('*TButton*highlightColor', '')
+            self.root.option_add('*TButton*borderWidth', 1)
+            self.root.option_add('*TButton*relief', 'raised')
+            self.root.option_add('*TButton*padding', [2, 2])
+            
+            # Update all buttons to use the new theme
+            for button in self.root.winfo_children():
+                if isinstance(button, ttk.Button):
+                    button.state(['!pressed'])
+                    button.configure(style='TButton')
+
+    def _bind_mousewheel(self, parent):
+        """Bind mouse wheel scrolling to all scrollable widgets in the application."""
+        def _on_mousewheel(event):
+            # Find the widget under the mouse cursor
+            widget = event.widget.winfo_containing(event.x_root, event.y_root)
+            
+            # Try to scroll the widget or its parent widgets
+            current = widget
+            while current:
+                # Check for Treeview
+                if isinstance(current, ttk.Treeview):
+                    current.yview_scroll(int(-1 * (event.delta / 120)), "units")
+                    return "break"
+                
+                # Check for Text widget
+                elif isinstance(current, tk.Text):
+                    current.yview_scroll(int(-1 * (event.delta / 120)), "units")
+                    return "break"
+                
+                # Check for Listbox
+                elif isinstance(current, tk.Listbox):
+                    current.yview_scroll(int(-1 * (event.delta / 120)), "units")
+                    return "break"
+                
+                # Check for Canvas (scrollable frames)
+                elif isinstance(current, tk.Canvas):
+                    current.yview_scroll(int(-1 * (event.delta / 120)), "units")
+                    return "break"
+                
+                # Check for Scrollbar
+                elif isinstance(current, ttk.Scrollbar):
+                    return "break"  # Let scrollbar handle it normally
+                
+                # Move to parent widget
+                try:
+                    current = current.master
+                except:
+                    break
+            
+            return "break"
+        
+        # Bind to the root window and all child widgets
+        def bind_to_widget(widget):
+            try:
+                widget.bind("<MouseWheel>", _on_mousewheel, add="+")
+                # Also bind for different systems
+                widget.bind("<Button-4>", lambda e: _on_mousewheel(e), add="+")  # Linux
+                widget.bind("<Button-5>", lambda e: _on_mousewheel(e), add="+")  # Linux
+                
+                # Recursively bind to all children
+                for child in widget.winfo_children():
+                    bind_to_widget(child)
+            except:
+                pass
+        
+        bind_to_widget(parent)
 
     def _setup_styles(self):
         """Setup basic styling with maximum compatibility."""
@@ -143,7 +419,7 @@ class IOCCheckerGUI:
         menubar = tk.Menu(self.root)
         self.root.config(menu=menubar)
         
-        # Settings menu
+        # Settings menu (removed dark mode)
         settings_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Settings", menu=settings_menu)
         settings_menu.add_command(label="API Keys...", command=self._configure_api_keys)
@@ -164,9 +440,28 @@ class IOCCheckerGUI:
         self.root.rowconfigure(0, weight=1)
         main.columnconfigure(0, weight=1)
         
+        # Theme toggle buttons at the top right
+        theme_frame = ttk.Frame(main)
+        theme_frame.grid(row=0, column=0, sticky="ne", pady=(0, 10))
+        
+        # Light mode button with sun symbol
+        self.btn_light = ttk.Button(theme_frame, text="☀", width=3, 
+                                   command=self._set_light_mode,
+                                   style="Theme.TButton")
+        self.btn_light.pack(side=tk.LEFT, padx=(0, 2))
+        
+        # Dark mode button with moon symbol  
+        self.btn_dark = ttk.Button(theme_frame, text="🌙", width=3,
+                                  command=self._set_dark_mode,
+                                  style="Theme.TButton")
+        self.btn_dark.pack(side=tk.LEFT)
+        
+        # Update button states based on current theme
+        self._update_theme_buttons()
+        
         # Single IOC input
         inp = ttk.LabelFrame(main, text="Single IOC Check", padding=10)
-        inp.grid(row=0, column=0, sticky="ew", pady=(0, 15))
+        inp.grid(row=1, column=0, sticky="ew", pady=(0, 15))
         inp.columnconfigure(3, weight=1)
         
         ttk.Label(inp, text="Type:").grid(row=0, column=0, sticky="w")
@@ -252,7 +547,7 @@ class IOCCheckerGUI:
         options_frame.grid(row=6, column=0, sticky="ew")
         
         ttk.Checkbutton(options_frame, text="Show only threats & errors", 
-                       variable=self.show_only).pack(side='left')
+                       variable=self.show_threats_var, command=self._on_toggle_filter).pack(side='left')
         
         # Add Providers button
         ttk.Button(options_frame, text="Providers", command=self.show_providers_info).pack(side='right')
@@ -277,38 +572,41 @@ class IOCCheckerGUI:
         """Display provider selection dialog for choosing which providers to use."""
         config_win = tk.Toplevel(self.root)
         config_win.title("Select Threat Intelligence Providers")
-        config_win.geometry("700x600")
+        config_win.geometry("750x650")
         config_win.resizable(True, True)
         
         # Make it modal
         config_win.transient(self.root)
         config_win.grab_set()
         
-        # Create main frame
+        # Create main frame with proper layout
         main_frame = ttk.Frame(config_win)
         main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        main_frame.grid_rowconfigure(2, weight=1)  # Make provider frame expandable
+        main_frame.grid_columnconfigure(0, weight=1)
         
         # Title
         title_label = ttk.Label(main_frame, text="Select Threat Intelligence Providers", 
                                font=("Arial", 16, "bold"))
-        title_label.pack(pady=(0, 10))
+        title_label.grid(row=0, column=0, sticky="ew", pady=(0, 10))
         
         # Instructions
         instruction_label = ttk.Label(main_frame, 
                                     text="Choose which providers to use for IOC checking:",
                                     font=("Arial", 11))
-        instruction_label.pack(pady=(0, 15))
+        instruction_label.grid(row=1, column=0, sticky="ew", pady=(0, 15))
         
         # Filter frame
         filter_frame = ttk.LabelFrame(main_frame, text="Filter by IOC Type", padding=10)
-        filter_frame.pack(fill="x", pady=(0, 15))
+        filter_frame.grid(row=2, column=0, sticky="ew", pady=(0, 15))
+        filter_frame.grid_columnconfigure(0, weight=1)
         
         # Filter variables
         self.filter_var = tk.StringVar(value="all")
         
         # Filter radio buttons
         filter_options_frame = ttk.Frame(filter_frame)
-        filter_options_frame.pack(fill="x")
+        filter_options_frame.grid(row=0, column=0, sticky="ew")
         
         filter_options = [
             ("all", "All Providers"),
@@ -322,27 +620,58 @@ class IOCCheckerGUI:
             ttk.Radiobutton(filter_options_frame, text=text, variable=self.filter_var, 
                            value=value, command=self._update_provider_filter).pack(side="left", padx=(0, 20))
         
-        # Provider selection frame with scrollbar
-        provider_frame = ttk.LabelFrame(main_frame, text="Available Providers", padding=10)
-        provider_frame.pack(fill="both", expand=True, pady=(0, 15))
+        # Provider selection frame with proper scrolling
+        provider_outer_frame = ttk.LabelFrame(main_frame, text="Available Providers", padding=10)
+        provider_outer_frame.grid(row=3, column=0, sticky="nsew", pady=(0, 15))
+        provider_outer_frame.grid_rowconfigure(0, weight=1)
+        provider_outer_frame.grid_columnconfigure(0, weight=1)
         
         # Create canvas and scrollbar for providers
-        canvas = tk.Canvas(provider_frame, height=300)
-        scrollbar = ttk.Scrollbar(provider_frame, orient="vertical", command=canvas.yview)
+        canvas = tk.Canvas(provider_outer_frame, highlightthickness=0)
+        v_scrollbar = ttk.Scrollbar(provider_outer_frame, orient="vertical", command=canvas.yview)
+        h_scrollbar = ttk.Scrollbar(provider_outer_frame, orient="horizontal", command=canvas.xview)
+        
         self.scrollable_frame = ttk.Frame(canvas)
         
-        self.scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
+        # Configure scrolling
+        def configure_scroll_region(event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
         
-        canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
+        def configure_canvas_size(event):
+            # Configure the canvas scroll region when the frame size changes
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            # Make the canvas frame width match the canvas width
+            canvas_width = event.width
+            canvas.itemconfig(canvas_window, width=canvas_width)
         
-        # Pack canvas and scrollbar
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-          # Store canvas reference for filtering
+        self.scrollable_frame.bind("<Configure>", configure_scroll_region)
+        canvas.bind("<Configure>", configure_canvas_size)
+        
+        # Create window in canvas
+        canvas_window = canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        
+        # Configure scrollbars
+        canvas.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
+        
+        # Grid the canvas and scrollbars
+        canvas.grid(row=0, column=0, sticky="nsew")
+        v_scrollbar.grid(row=0, column=1, sticky="ns")
+        h_scrollbar.grid(row=1, column=0, sticky="ew")
+        
+        # Mouse wheel scrolling for canvas
+        def _on_mousewheel_providers(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            
+        def _bind_to_mousewheel(event):
+            canvas.bind_all("<MouseWheel>", _on_mousewheel_providers)
+            
+        def _unbind_from_mousewheel(event):
+            canvas.unbind_all("<MouseWheel>")
+            
+        canvas.bind('<Enter>', _bind_to_mousewheel)
+        canvas.bind('<Leave>', _unbind_from_mousewheel)
+        
+        # Store canvas reference for filtering
         self.provider_canvas = canvas
         
         # Store checkbox variables
@@ -352,24 +681,28 @@ class IOCCheckerGUI:
         # Create provider checkboxes
         self._create_provider_checkboxes()
         
-        # Status message
+        # Status message - fixed position
         status_frame = ttk.Frame(main_frame)
-        status_frame.pack(fill="x", pady=(10, 15))
+        status_frame.grid(row=4, column=0, sticky="ew", pady=(10, 15))
         
         self.status_label = ttk.Label(status_frame, 
                                     text="✗ = No API key configured, ✓ = API key available",
                                     font=("Arial", 10), foreground="gray")
         self.status_label.pack()
         
-        # Button frame
+        # Button frame - always at bottom
         btn_frame = ttk.Frame(main_frame)
-        btn_frame.pack()
+        btn_frame.grid(row=5, column=0, sticky="ew")
         
         def save_selection():
             """Save the provider selection."""
             # Update provider configuration
             for provider_id, var in self.provider_vars.items():
                 self.provider_config[provider_id] = var.get()
+            
+            # Save settings to local storage
+            self.settings['provider_config'] = self.provider_config
+            self._save_settings(self.settings)
             
             # Show confirmation
             enabled_providers = [pid for pid, enabled in self.provider_config.items() if enabled]
@@ -405,12 +738,23 @@ class IOCCheckerGUI:
             for var in self.provider_vars.values():
                 var.set(False)
         
-        # Arrange buttons
-        ttk.Button(btn_frame, text="Select Filtered", command=select_filtered).pack(side="left", padx=(0, 10))
-        ttk.Button(btn_frame, text="Clear All", command=clear_all).pack(side="left", padx=(0, 20))
-        ttk.Button(btn_frame, text="Save", command=save_selection).pack(side="left", padx=(0, 10))
-        ttk.Button(btn_frame, text="Cancel", command=config_win.destroy).pack(side="left")
-    
+        # Arrange buttons horizontally
+        button_left_frame = ttk.Frame(btn_frame)
+        button_left_frame.pack(side="left")
+        
+        button_right_frame = ttk.Frame(btn_frame)
+        button_right_frame.pack(side="right")
+        
+        ttk.Button(button_left_frame, text="Select Filtered", command=select_filtered).pack(side="left", padx=(0, 10))
+        ttk.Button(button_left_frame, text="Clear All", command=clear_all).pack(side="left", padx=(0, 10))
+        
+        ttk.Button(button_right_frame, text="Save", command=save_selection).pack(side="left", padx=(0, 10))
+        ttk.Button(button_right_frame, text="Cancel", command=config_win.destroy).pack(side="left")
+        
+        # Set minimum size and update after creation
+        config_win.update_idletasks()
+        config_win.minsize(600, 500)
+
     def _create_provider_checkboxes(self):
         """Create checkboxes for all providers."""
         # Clear existing frames
@@ -630,9 +974,10 @@ class IOCCheckerGUI:
                     # Update GUI on main thread
                     self.root.after(0, lambda: self._batch_complete(len(ioc_values)))
                     
-                except Exception as e:
-                    # Update GUI with error on main thread
-                    self.root.after(0, lambda: self._batch_error(str(e)))
+                except Exception as batch_error:
+                    # Update GUI with error on main thread - capture the exception properly
+                    error_msg = str(batch_error)
+                    self.root.after(0, lambda msg=error_msg: self._batch_error(msg))
             
             # Start the batch processing thread
             thread = threading.Thread(target=run_batch, daemon=True)
@@ -671,12 +1016,29 @@ class IOCCheckerGUI:
 
     def _show_result(self, ioc_type, ioc_value, status, details, flagged_by=""):
         """Show a result in the output."""
-        # Clear existing items
+        # Initialize all_results if needed
+        if not hasattr(self, 'all_results'):
+            self.all_results = []
+        
+        # Create result tuple
+        result_tuple = (ioc_type, ioc_value, status, flagged_by, details)
+        
+        # Store in all_results for filtering
+        self.all_results.append(result_tuple)
+        
+        # Clear existing items (for single result display)
         for item in self.out.get_children():
             self.out.delete(item)
         
-        # Add the result with the new flagged_by column
-        self.out.insert('', 'end', values=(ioc_type, ioc_value, status, flagged_by, details))
+        # Apply filter when displaying
+        show_only = self.show_threats_var.get()
+        if show_only:
+            # Only show malicious, suspicious, or error results
+            if status.lower() in ["malicious", "suspicious", "error", "failed"]:
+                self.out.insert('', 'end', values=result_tuple)
+        else:
+            # Show all results
+            self.out.insert('', 'end', values=result_tuple)
 
     def _stop_processing(self):
         """Stop current processing."""
@@ -699,7 +1061,7 @@ class IOCCheckerGUI:
         # Create new window
         config_window = tk.Toplevel(self.root)
         config_window.title("API Key Configuration")
-        config_window.geometry("600x500")
+        config_window.geometry("700x600")
         config_window.transient(self.root)
         config_window.grab_set()
         
@@ -727,32 +1089,58 @@ class IOCCheckerGUI:
         desc_label = ttk.Label(main_frame, text=desc_text, justify="left")
         desc_label.pack(pady=(0, 20), anchor="w")
         
-        # API key entries
+        # Create scrollable frame for API key entries
+        canvas = tk.Canvas(main_frame, height=300)
+        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
+        scrollable_entries_frame = ttk.Frame(canvas)
+        
+        scrollable_entries_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_entries_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Pack canvas and scrollbar
+        canvas.pack(side="left", fill="both", expand=True, pady=(0, 20))
+        scrollbar.pack(side="right", fill="y", pady=(0, 20))
+        
+        # Bind mouse wheel to canvas
+        def _on_mousewheel_canvas(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        
+        canvas.bind("<MouseWheel>", _on_mousewheel_canvas)
+        scrollable_entries_frame.bind("<MouseWheel>", _on_mousewheel_canvas)
+        
+        # API key entries - now includes all providers
         self.api_key_vars = {}
-        entries_frame = ttk.Frame(main_frame)
-        entries_frame.pack(fill="x", pady=(0, 20))        
+        
+        # All API key configurations including URLHaus and MalwareBazaar
         api_key_configs = [
             ("virustotal", "VirusTotal", "Required for malware/URL analysis"),
             ("abuseipdb", "AbuseIPDB", "Required for IP reputation"),
             ("otx", "AlienVault OTX", "Optional - Open threat exchange"),
             ("threatfox", "ThreatFox", "Optional - Malware IOCs from abuse.ch"),
+            ("urlhaus", "URLHaus", "Optional - Enhanced abuse.ch malicious URL analysis"),
+            ("malwarebazaar", "MalwareBazaar", "Optional - Enhanced abuse.ch malware sample analysis"),
             ("greynoise", "GreyNoise", "Optional - Advanced IP analysis"),
             ("pulsedive", "Pulsedive", "Optional - Threat intelligence platform"),
             ("shodan", "Shodan", "Optional - Infrastructure analysis"),
         ]
         
         # Note about free services
-        note_frame = ttk.Frame(entries_frame)
+        note_frame = ttk.Frame(scrollable_entries_frame)
         note_frame.pack(fill="x", pady=(0, 10))
         
-        note_text = "Note: URLHaus and MalwareBazaar (abuse.ch) are free services that don't require API keys."
+        note_text = "Note: URLHaus and MalwareBazaar work without API keys, but providing keys may unlock additional features or higher rate limits."
         note_label = ttk.Label(note_frame, text=note_text, font=("TkDefaultFont", 8), 
                               foreground="blue", wraplength=550)
         note_label.pack(anchor="w")
         
         for i, (key, name, desc) in enumerate(api_key_configs):
             # Label frame for each API key
-            frame = ttk.LabelFrame(entries_frame, text=f"{name} API Key", padding=10)
+            frame = ttk.LabelFrame(scrollable_entries_frame, text=f"{name} API Key", padding=10)
             frame.pack(fill="x", pady=5)
             
             # Description
@@ -777,15 +1165,15 @@ class IOCCheckerGUI:
                                  command=lambda e=entry: toggle_visibility(e, key))
             show_btn.pack(anchor="e", pady=(2, 0))
         
-        # Status frame
+        # Status frame - now outside the scrollable area
         status_frame = ttk.Frame(main_frame)
         status_frame.pack(fill="x", pady=(0, 20))
         
         status_label = ttk.Label(status_frame, text="Current Status:")
         status_label.pack(anchor="w")
         
-        # Show current API key status
-        status_text = tk.Text(status_frame, height=6, width=60, state="disabled")
+        # Show current API key status - make this scrollable too if needed
+        status_text = tk.Text(status_frame, height=8, width=60, state="disabled")
         status_text.pack(fill="x")
         
         def update_status():
@@ -841,7 +1229,10 @@ class IOCCheckerGUI:
         ttk.Button(buttons_frame, text="Save", command=save_keys).pack(side="left", padx=(0, 10))
         ttk.Button(buttons_frame, text="Test Keys", command=test_keys).pack(side="left", padx=(0, 10))
         ttk.Button(buttons_frame, text="Cancel", command=config_window.destroy).pack(side="right")
-    
+        
+        # Enable mouse wheel scrolling for the configuration window
+        self._bind_mousewheel(config_window)
+
     def _save_env_file(self):
         """Save API keys to .env file."""
         env_path = os.path.join(os.path.dirname(__file__), '.env')
@@ -919,38 +1310,228 @@ class IOCCheckerGUI:
         
         return True
 
-def main():
-    """Main entry point for the IOC Checker GUI application."""
+    def _on_toggle_filter(self):
+        """Callback when the Show-only-threats toggle is changed."""
+        show_only = self.show_threats_var.get()
+        
+        # Save the filter setting to local storage
+        self.settings['show_threats_only'] = show_only
+        self._save_settings(self.settings)
+        
+        # Store all current results if we haven't already
+        if not hasattr(self, 'all_results'):
+            self.all_results = []
+            # Capture existing results
+            for item in self.out.get_children():
+                values = self.out.item(item, "values")
+                if values:
+                    self.all_results.append(values)
+        
+        # Clear and rebuild the display based on filter
+        self._refresh_display()
+    
+    def _refresh_display(self):
+        """Refresh the display based on current filter settings."""
+        show_only = self.show_threats_var.get()
+        
+        # Clear the treeview
+        for item in self.out.get_children():
+            self.out.delete(item)
+        
+        # Re-add items based on filter
+        for result in getattr(self, 'all_results', []):
+            if len(result) >= 3:  # Ensure we have at least type, ioc, status
+                ioc_type, ioc_value, status = result[0], result[1], result[2]
+                flagged_by = result[3] if len(result) > 3 else ""
+                details = result[4] if len(result) > 4 else ""
+                
+                # Apply filter
+                if show_only:
+                    # Only show malicious, suspicious, or error results
+                    if status.lower() in ["malicious", "suspicious", "error", "failed"]:
+                        self.out.insert('', 'end', values=result)
+                else:
+                    # Show all results
+                    self.out.insert('', 'end', values=result)
+    
+    def display_result(self, result: dict):
+        """Display a single IOC result, respecting the threat-only filter."""
+        verdict = result.get("Verdict", "")
+        ioc_type = result.get("Type", "")
+        ioc_value = result.get("Indicator", "")
+        flagged_by = result.get("FlaggedBy", "")
+        details = result.get("Details", "")
+        
+        # Store in all_results
+        if not hasattr(self, 'all_results'):
+            self.all_results = []
+        
+        result_tuple = (ioc_type, ioc_value, verdict, flagged_by, details)
+        self.all_results.append(result_tuple)
+        
+        # Only insert if filter allows it
+        if self.show_threats_var.get():
+            if verdict.lower() not in ["malicious", "suspicious", "error", "failed"]:
+                return  # skip benign because filter is on
+        
+        # Insert the result
+        self.out.insert("", "end", values=result_tuple)
+    
+    def toggle_theme(self):
+        """Toggle between light and dark theme."""
+        if not SV_TTK_AVAILABLE:
+            messagebox.showwarning("Dark Mode Unavailable", 
+                                 "sv-ttk library is not available. Dark mode is disabled.")
+            return
+        
+        try:
+            if self.dark_mode.get():
+                sv_ttk.set_theme("dark")
+            else:
+                sv_ttk.set_theme("light")
+        except Exception as e:
+            messagebox.showerror("Theme Error", f"Failed to change theme: {e}")
+            # Reset the checkbox if theme change failed
+            self.dark_mode.set(not self.dark_mode.get())
+
+    def _set_light_mode(self):
+        """Set the theme to light mode."""
+        self.dark_mode.set(False)
+        self._apply_theme()
+        
+        # Save theme setting
+        self.settings['dark_mode'] = False
+        self._save_settings(self.settings)
+        
+        # Update button states
+        self._update_theme_buttons()
+
+    def _set_dark_mode(self):
+        """Set the theme to dark mode."""
+        self.dark_mode.set(True)
+        self._apply_theme()
+        
+        # Save theme setting  
+        self.settings['dark_mode'] = True
+        self._save_settings(self.settings)
+        
+        # Update button states
+        self._update_theme_buttons()
+
+    def _update_theme_buttons(self):
+        """Update the states of the theme toggle buttons."""
+        if hasattr(self, 'btn_dark') and hasattr(self, 'btn_light'):
+            if self.dark_mode.get():
+                # Dark mode is active - update button text to show active state
+                self.btn_dark.configure(text="🌙✓")
+                self.btn_light.configure(text="☀")
+            else:
+                # Light mode is active - update button text to show active state
+                self.btn_light.configure(text="☀✓")
+                self.btn_dark.configure(text="🌙")
+
+    def _apply_theme(self):
+        """Apply the current theme setting."""
+        if SV_TTK_AVAILABLE:
+            try:
+                if self.dark_mode.get():
+                    sv_ttk.set_theme("dark")
+                else:
+                    sv_ttk.set_theme("light")
+                    
+                # Update button states after theme change
+                if hasattr(self, 'btn_dark') and hasattr(self, 'btn_light'):
+                    self._update_theme_buttons()
+                    
+            except Exception as e:
+                log.warning(f"Failed to apply sv-ttk theme: {e}")
+                # Fallback to basic tkinter theme changes
+                self._apply_basic_theme()
+        else:
+            # Use basic theme changes when sv-ttk is not available
+            self._apply_basic_theme()
+
+    def _apply_basic_theme(self):
+        """Apply basic theme changes without sv-ttk."""
+        if self.dark_mode.get():
+            # Dark theme colors
+            bg_color = '#2b2b2b'
+            fg_color = '#ffffff'
+            select_bg = '#404040'
+            entry_bg = '#3b3b3b'
+            
+            # Apply to root window
+            self.root.configure(bg=bg_color)
+            
+            # Apply to all widgets recursively
+            self._apply_theme_to_widgets(self.root, bg_color, fg_color, select_bg, entry_bg)
+        else:
+            # Light theme (default)
+            bg_color = '#f0f0f0'
+            fg_color = '#000000'
+            select_bg = '#0078d4'
+            entry_bg = '#ffffff'
+            
+            # Reset to default colors
+            self.root.configure(bg=bg_color)
+            self._apply_theme_to_widgets(self.root, bg_color, fg_color, select_bg, entry_bg)
+
+    def _apply_theme_to_widgets(self, widget, bg_color, fg_color, select_bg, entry_bg):
+        """Recursively apply theme colors to all widgets."""
+        try:
+            widget_class = widget.winfo_class()
+            
+            if widget_class in ['Frame', 'Toplevel']:
+                widget.configure(bg=bg_color)
+            elif widget_class in ['Label']:
+                widget.configure(bg=bg_color, fg=fg_color)
+            elif widget_class in ['Entry']:
+                widget.configure(bg=entry_bg, fg=fg_color, insertbackground=fg_color)
+            elif widget_class in ['Text']:
+                widget.configure(bg=entry_bg, fg=fg_color, insertbackground=fg_color)
+            elif widget_class in ['Listbox']:
+                widget.configure(bg=entry_bg, fg=fg_color, selectbackground=select_bg)
+                
+            # Recursively apply to children
+            for child in widget.winfo_children():
+                self._apply_theme_to_widgets(child, bg_color, fg_color, select_bg, entry_bg)
+                
+        except Exception as e:
+            # Some widgets might not support certain options
+            pass
+
+
+if __name__ == "__main__":
+    """Main entry point for the GUI application."""
     try:
-        # Create and run the GUI application
+        # Set up basic logging
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        
+        print("Starting IOC Checker GUI...")
+        
+        # Create and run the GUI
         app = IOCCheckerGUI()
         app.run()
+        
     except Exception as e:
-        # If GUI fails to start, show error message
+        print(f"Failed to start GUI: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        # Show error dialog if possible
         try:
             import tkinter as tk
             from tkinter import messagebox
             root = tk.Tk()
             root.withdraw()  # Hide the main window
-            messagebox.showerror("IOC Checker Error", f"Failed to start GUI application:\n{str(e)}")
-        except Exception:
-            # If even basic tkinter fails, print to console
-            print(f"Error starting IOC Checker GUI: {e}")
-            print("Please check that all required dependencies are installed.")
+            messagebox.showerror("Startup Error", 
+                               f"Failed to start IOC Checker GUI:\n\n{e}\n\n"
+                               "Please check the console for more details.")
+            root.destroy()
+        except:
+            pass  # If even the error dialog fails, just exit
+        
         sys.exit(1)
-
-
-if __name__ == "__main__":
-    # Smoke test to ensure startup is clean
-    if len(sys.argv) > 1 and sys.argv[1] == "--test":
-        try:
-            import time
-            app = IOCCheckerGUI()
-            app.root.after(1000, app.root.destroy)  # Destroy after 1 second
-            app.run()
-            print("GUI startup test passed!")
-        except Exception as e:
-            print(f"GUI startup test failed: {e}")
-            sys.exit(1)
-    else:
-        main()
