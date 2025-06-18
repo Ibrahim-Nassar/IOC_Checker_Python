@@ -448,9 +448,9 @@ class IOCCheckerGUI:
         
         # Configure columns
         self.out.heading('Type', text='Type')
-        self.out.heading('IOC', text='IOC')
-        self.out.heading('Status', text='Status')
-        self.out.heading('Flagged By', text='Flagged By')
+        self.out.heading('IOC', text='Indicator')
+        self.out.heading('Status', text='Verdict')
+        self.out.heading('Flagged By', text='FlaggedBy')
         self.out.heading('Details', text='Details')
         
         # Set column widths
@@ -808,29 +808,33 @@ class IOCCheckerGUI:
         self.root.update()
           # Start checking in a separate thread
         def run_single_check():
+            """Thread worker to scan a single IOC using the lightweight providers.scan helper."""
             try:
-                # Import here to avoid circular imports
-                from ioc_checker import check_single_ioc
-                
-                # Run the check with selected providers
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                result = loop.run_until_complete(
-                    check_single_ioc(ioc_value, ioc_type, selected_providers=selected_providers)
+                # Local import keeps top-level dependencies minimal
+                from providers import scan  # noqa: WPS433 (allow runtime import)
+
+                # Perform synchronous scan
+                results = scan(ioc_value)
+
+                # Determine verdict and the providers that flagged the IOC
+                flagged = [p for p, bad in results.items() if bad]
+                verdict = "Malicious" if flagged else "Clean"
+                flagged_text = ", ".join(flagged)
+
+                # Push the update back to the GUI thread
+                self.root.after(
+                    0,
+                    lambda: self._show_result(
+                        ioc_type,
+                        ioc_value,
+                        verdict,
+                        "",          # no extra summary details
+                        flagged_text,
+                    ),
                 )
-                loop.close()
-                
-                # Extract information for display
-                status = result.get('overall_verdict', 'unknown').title()
-                flagged_by = result.get('flagged_by_text', '')
-                summary = result.get('summary', 'No additional details')
-                
-                # Update GUI on main thread
-                self.root.after(0, lambda: self._show_result(ioc_type, ioc_value, status, summary, flagged_by))
-                
-            except Exception as e:
-                # Update GUI with error on main thread
-                self.root.after(0, lambda: self._show_result(ioc_type, ioc_value, "Error", str(e), ""))
+
+            except Exception as exc:  # pragma: no cover – surface any runtime errors
+                self.root.after(0, lambda: self._show_result(ioc_type, ioc_value, "Error", str(exc), ""))
         
         # Run in thread to avoid blocking GUI
         import threading
