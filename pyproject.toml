@@ -3,10 +3,15 @@ name = "ioc-checker"
 version = "0.1.0"
 description = ""
 authors = [
-    {name = "Ibrahim",email = "ibrahim-ehab@live.com"}
+    { name = "Ibrahim", email = "ibrahim-ehab@live.com" }
 ]
+
+# make the top-level .py files importable as a package
+py-modules = ["ioc_checker", "ioc_types", "providers", "reports", "loader"]
+
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
+
 dependencies = [
     "aiohttp (>=3.12.13,<4.0.0)",
     "aiohttp-client-cache (>=0.13.0,<0.14.0)",

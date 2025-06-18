@@ -12,11 +12,11 @@ import logging
 import pathlib
 import sys
 import aiohttp
-from typing import Dict, Any
+from typing import Dict, Any, List
 from aiohttp_client_cache import CachedSession, SQLiteBackend
 from ioc_types import detect_ioc_type
 from providers import ALWAYS_ON, RATE_LIMIT
-from reports   import WRITERS
+from reports   import WRITERS, write_csv
 from loader import load_iocs
 
 # Ensure UTF-8 output on all platforms
@@ -133,6 +133,107 @@ async def scan_single(session: aiohttp.ClientSession, val: str, rate: bool, sele
     return {"value": norm, "type": typ,
             "results": await _query(session, typ, norm, rate, selected_providers)}
 
+async def batch_check_indicators(indicators: List[str], rate: bool = False, selected_providers: list = None) -> None:
+    """
+    Process a batch of indicators and write results to CSV.
+    """
+    all_results = []
+    
+    # Create session for batch processing
+    conn = aiohttp.TCPConnector(limit_per_host=10, ssl=False, force_close=True)
+    timeout = aiohttp.ClientTimeout(total=30, connect=10)
+    
+    try:
+        async with CachedSession(cache=SQLiteBackend(cache_name=".cache/ioc_cache.sqlite", expire_after=86400), connector=conn, timeout=timeout) as session:
+            for idx, ioc in enumerate(indicators, 1):
+                try:
+                    result = await scan_single(session, ioc, rate, selected_providers)
+                    
+                    # Aggregate provider verdicts for enhanced results
+                    provider_results = result.get("results", {})
+                    verdict_info = aggregate_provider_verdicts(provider_results)
+                    
+                    # Convert result to enhanced dict format for CSV
+                    csv_result = {
+                        "Indicator": result["value"],
+                        "Type": result["type"],
+                        "Overall": verdict_info["overall_verdict"].title(),
+                        "Flagged_By": ", ".join(verdict_info["flagged_by"]) if verdict_info["flagged_by"] else "",
+                        "Flagged_Count": verdict_info["flagged_count"],
+                        "Total_Providers": verdict_info["total_providers"],
+                        "Summary": format_verdict_summary(verdict_info)
+                    }
+                    
+                    # Add provider-specific results
+                    for provider, data in provider_results.items():
+                        if provider != "error":
+                            if isinstance(data, dict) and "status" in data:
+                                csv_result[f"{provider}_status"] = data["status"]
+                                csv_result[f"{provider}_score"] = data.get("score", 0)
+                            else:
+                                csv_result[f"{provider}_status"] = "n/a"
+                                csv_result[f"{provider}_score"] = 0
+                    
+                    all_results.append(csv_result)
+                    print(f"[{idx}/{len(indicators)}] Processed: {ioc}")
+                    
+                    # Rate limiting for API calls
+                    if rate:
+                        await asyncio.sleep(0.1)
+                        
+                except Exception as e:
+                    log.error(f"Failed to process indicator '{ioc}': {e}")
+                    error_result = {
+                        "Indicator": ioc,
+                        "Type": "error",
+                        "Overall": "ERROR",
+                        "error": str(e)
+                    }
+                    all_results.append(error_result)
+    
+    except Exception as e:
+        log.error(f"Session error during batch processing: {e}")
+        return
+    
+    # Write all results to CSV
+    if all_results:
+        csv_path = write_csv(all_results)
+        if csv_path:
+            print(f"[Batch] Results written to {csv_path}")
+        else:
+            print("[Batch] No results to write.")
+    else:
+        print("[Batch] No indicators processed.")
+
+def _calculate_overall_risk_simple(provider_results: Dict[str, Any]) -> str:
+    """Simple version of risk calculation for batch processing."""
+    if not provider_results:
+        return "LOW"
+    
+    malicious_count = 0
+    suspicious_count = 0
+    clean_count = 0
+    
+    for provider_name, provider_data in provider_results.items():
+        if provider_name == "error":
+            continue
+            
+        if isinstance(provider_data, dict) and "status" in provider_data:
+            status = provider_data["status"]
+            if status == "malicious":
+                malicious_count += 1
+            elif status == "suspicious":
+                suspicious_count += 1
+            elif status == "clean":
+                clean_count += 1
+    
+    if malicious_count > 0:
+        return "HIGH"
+    elif suspicious_count > 0:
+        return "MEDIUM"
+    else:
+        return "LOW"
+
 # ────────── format-agnostic file processing ──────────
 async def process_file(file_path: str, out: str, rate: bool, selected_providers: list = None, limit: int = None) -> None:
     """Process any supported file format with format-agnostic IOC discovery."""
@@ -224,6 +325,77 @@ async def process_file(file_path: str, out: str, rate: bool, selected_providers:
     except Exception as e:
         log.error(f"Failed to write CSV report: {e}")
         print(f"Error writing CSV report: {e}")
+
+def aggregate_provider_verdicts(provider_results: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Aggregate provider results to show overall verdict and which providers flagged the IOC.
+    
+    Args:
+        provider_results: Dict mapping provider names to their results
+        
+    Returns:
+        Dict containing overall verdict and flagged_by information
+    """
+    flagged_by = []
+    error_providers = []
+    total_providers = 0
+    
+    # Check each provider's result
+    for provider_name, result in provider_results.items():
+        if provider_name == "error":
+            continue
+            
+        total_providers += 1
+        
+        if isinstance(result, dict):
+            status = result.get("status", "").lower()
+            
+            # Consider malicious or suspicious as flagged
+            if status in ["malicious", "suspicious"]:
+                flagged_by.append(provider_name)
+            elif status in ["error", "n/a"]:
+                error_providers.append(provider_name)
+    
+    # Determine overall verdict
+    if flagged_by:
+        overall_verdict = "malicious"
+    elif error_providers and len(error_providers) == total_providers:
+        overall_verdict = "error"
+    else:
+        overall_verdict = "clean"
+    
+    return {
+        "overall_verdict": overall_verdict,
+        "flagged_by": flagged_by,
+        "error_providers": error_providers,
+        "total_providers": total_providers,
+        "flagged_count": len(flagged_by)
+    }
+
+def format_verdict_summary(verdict_info: Dict[str, Any]) -> str:
+    """
+    Format a human-readable summary of the verdict.
+    
+    Args:
+        verdict_info: Result from aggregate_provider_verdicts
+        
+    Returns:
+        Formatted string describing the verdict
+    """
+    overall = verdict_info["overall_verdict"]
+    flagged_by = verdict_info["flagged_by"]
+    flagged_count = verdict_info["flagged_count"]
+    total_providers = verdict_info["total_providers"]
+    
+    if overall == "malicious":
+        if len(flagged_by) == 1:
+            return f"Malicious (flagged by {flagged_by[0]})"
+        else:
+            return f"Malicious (flagged by {', '.join(flagged_by)})"
+    elif overall == "error":
+        return f"Error ({total_providers} provider(s) failed)"
+    else:
+        return f"Clean ({total_providers} provider(s) checked)"
 
 # ────────── CLI entry point ──────────
 def main() -> None:
@@ -321,3 +493,57 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+async def check_single_ioc(value: str, ioc_type: str = None, selected_providers: list = None) -> Dict[str, Any]:
+    """
+    Check a single IOC and return detailed results including per-provider verdicts.
+    
+    Args:
+        value: The IOC value to check
+        ioc_type: Optional IOC type (auto-detected if not provided)
+        selected_providers: List of provider names to use
+        
+    Returns:
+        Dict containing detailed results with per-provider information
+    """
+    conn = aiohttp.TCPConnector(limit_per_host=10, ssl=False, force_close=True)
+    timeout = aiohttp.ClientTimeout(total=30, connect=10)
+    
+    try:
+        async with CachedSession(cache=SQLiteBackend(cache_name=".cache/ioc_cache.sqlite", expire_after=86400), connector=conn, timeout=timeout) as session:
+            result = await scan_single(session, value, rate=False, selected_providers=selected_providers)
+            
+            # Aggregate the provider results
+            provider_results = result.get("results", {})
+            verdict_info = aggregate_provider_verdicts(provider_results)
+            
+            # Build enhanced result
+            enhanced_result = {
+                "value": result["value"],
+                "type": result["type"],
+                "is_malicious": verdict_info["overall_verdict"] == "malicious",
+                "overall_verdict": verdict_info["overall_verdict"],
+                "summary": format_verdict_summary(verdict_info),
+                "flagged_by": verdict_info["flagged_by"],
+                "flagged_by_text": ", ".join(verdict_info["flagged_by"]) if verdict_info["flagged_by"] else "",
+                "total_providers": verdict_info["total_providers"],
+                "provider_results": provider_results,
+                "error_providers": verdict_info["error_providers"]
+            }
+            
+            return enhanced_result
+            
+    except Exception as e:
+        log.error(f"Error checking IOC {value}: {e}")
+        return {
+            "value": value,
+            "type": ioc_type or "unknown",
+            "is_malicious": False,
+            "overall_verdict": "error",
+            "summary": f"Error: {str(e)}",
+            "flagged_by": [],
+            "flagged_by_text": "",
+            "total_providers": 0,
+            "provider_results": {},
+            "error_providers": []
+        }

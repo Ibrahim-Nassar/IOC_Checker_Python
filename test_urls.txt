@@ -1,0 +1,4 @@
+https://malware-test.com
+https://example.com  
+https://suspicious-domain.net
+http://test-url.org
