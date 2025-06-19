@@ -899,7 +899,9 @@ class IOCCheckerGUI:
         selected_providers = [provider for provider, enabled in self.provider_config.items() if enabled]
         
         self._clear()
-        self.out.insert('', 'end', values=(ioc_type, ioc_value, "Checking...", ""))
+        placeholder_id = self.out.insert('', 'end', values=(ioc_type, ioc_value, "Checking...", ""))
+        # Store the placeholder row ID so we can update it later
+        self._current_placeholder = placeholder_id
         self.root.update()
           # Start checking in a separate thread
         def run_single_check():
@@ -911,8 +913,9 @@ class IOCCheckerGUI:
                 # Perform synchronous scan
                 results = scan(ioc_value)
 
-                # Determine verdict and the providers that flagged the IOC
-                flagged = [p for p, bad in results.items() if bad]
+                # Only include real provider names (exclude 'verdict' and 'flagged_by')
+                import providers as _prov
+                flagged = [p for p, bad in results.items() if p in _prov.PROVIDERS and bad]
                 verdict = "Malicious" if flagged else "Clean"
                 flagged_text = ", ".join(flagged)
 
@@ -925,11 +928,12 @@ class IOCCheckerGUI:
                         verdict,
                         "",          # no extra summary details
                         flagged_text,
+                        self._current_placeholder,
                     ),
                 )
 
             except Exception as exc:  # pragma: no cover – surface any runtime errors
-                self.root.after(0, lambda: self._show_result(ioc_type, ioc_value, "Error", str(exc), ""))
+                self.root.after(0, lambda: self._show_result(ioc_type, ioc_value, "Error", str(exc), "", self._current_placeholder))
         
         # Run in thread to avoid blocking GUI
         import threading
@@ -1032,7 +1036,7 @@ class IOCCheckerGUI:
         self._show_result("Batch", "Error", "Failed", error_msg, "")
         messagebox.showerror("Batch Processing Error", f"Batch processing failed:\n\n{error_msg}")
 
-    def _show_result(self, ioc_type, ioc_value, status, details, flagged_by=""):
+    def _show_result(self, ioc_type, ioc_value, status, details, flagged_by="", row_id=None):
         """Show a result in the output."""
         # Initialize all_results if needed
         if not hasattr(self, 'all_results'):
@@ -1046,13 +1050,21 @@ class IOCCheckerGUI:
         
         # Apply filter when displaying
         show_only = self.show_threats_var.get()
-        if show_only:
-            # Only show malicious, suspicious, or error results
-            if status.lower() in ["malicious", "suspicious", "error", "failed"]:
-                self.out.insert('', 'end', values=result_tuple)
+        def _should_display():
+            if not show_only:
+                return True
+            return status.lower() in ["malicious", "suspicious", "error", "failed"]
+
+        if row_id and self.out.exists(row_id):
+            # Update existing row
+            if _should_display():
+                self.out.item(row_id, values=result_tuple)
+            else:
+                # Remove placeholder if filter hides it
+                self.out.delete(row_id)
         else:
-            # Show all results
-            self.out.insert('', 'end', values=result_tuple)
+            if _should_display():
+                self.out.insert('', 'end', values=result_tuple)
 
     def _stop_processing(self):
         """Stop current processing."""

@@ -13,41 +13,61 @@ log = logging.getLogger("reports")
 
 CSV_FILENAME = "results.csv"
 
-def write_csv(results: List[Dict[str, str]]) -> str:
-    """
-    Write the list of result dictionaries to a CSV file.
-    Returns the file path of the written CSV.
-    """
-    if not results:
-        return ""
-    
-    # Determine all possible fieldnames from all result dicts
-    all_fieldnames = set()
-    for result in results:
-        all_fieldnames.update(result.keys())
-    
-    fieldnames = []
+def write_csv(path_or_results, results: list | None = None) -> str:
+    """Write results to *path* (or the default `results.csv`).
 
-    # Special-case: when we have exactly the classic trio of columns the
-    # **tests expect** the order to be Indicator, Verdict, Provider (note:
-    # *not* alphabetical).  For any other combination we fall back to
-    # alphabetical ordering which is what the comprehensive test checks.
-    classic_trio = {"Indicator", "Verdict", "Provider"}
-    if all_fieldnames == classic_trio:
-        fieldnames = ["Indicator", "Verdict", "Provider"]
+    The function supports **two calling conventions** for backward-compatibility:
+
+    1. ``write_csv(results)`` – legacy style used throughout the CLI / GUI. The
+       CSV will be written to *results.csv* in the current working directory.
+    2. ``write_csv(path, results)`` – explicit destination used by the test-
+       suite where *path* is a ``str`` or ``pathlib.Path`` instance.
+
+    Both signatures accept *results* as an ``Iterable[Mapping[str, Any]]`` where
+    each element represents one row.  The column order is derived from the first
+    occurrence of a field across *results* so that callers can deterministically
+    control the header ordering (as required by the unit-tests).
+    """
+    # ------------------------------------------------------------------
+    # Parameter normalisation
+    # ------------------------------------------------------------------
+    if results is None:
+        # One-argument form → the argument *is* the list of rows.
+        dest_path = pathlib.Path(CSV_FILENAME)
+        rows = path_or_results  # type: ignore[assignment]
     else:
-        # Default: deterministic alphabetical order
-        fieldnames = sorted(all_fieldnames)
-    
-    # Open with newline='' to avoid extra CR on Windows, use utf-8-sig for BOM
-    with open(CSV_FILENAME, mode="w", newline="", encoding="utf-8-sig") as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        # Two-argument form → first argument is the path.
+        dest_path = pathlib.Path(path_or_results)
+        rows = results
+
+    # Guard – nothing to write
+    if not rows:
+        return str(dest_path)
+
+    # ------------------------------------------------------------------
+    # Determine column order: keep the *insertion* order of the first
+    # appearance of a key across the input – simple and deterministic.
+    # ------------------------------------------------------------------
+    fieldnames: list[str] = []
+    for row in rows:
+        for key in row.keys():
+            if key not in fieldnames:
+                fieldnames.append(key)
+
+    # ------------------------------------------------------------------
+    # Write file – use *newline=""* to avoid the blank-line issue on Windows.
+    # ------------------------------------------------------------------
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    with dest_path.open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fieldnames)
         writer.writeheader()
-        for row in results:
-            # Fill missing fields with empty strings
-            complete_row = {field: row.get(field, '') for field in fieldnames}
-            writer.writerow(complete_row)
-    return os.path.abspath(CSV_FILENAME)
+        for row in rows:
+            # Ensure every expected field is present – fill missing keys with "".
+            safe_row = {fn: row.get(fn, "") for fn in fieldnames}
+            writer.writerow(safe_row)
+
+    log.info(f"CSV report written → {dest_path}")
+    return str(dest_path)
 
 def write_clean_csv(path: pathlib.Path, results: List[Dict[str, Any]]) -> None:
     """Write clean CSV report with structured columns for only active providers."""

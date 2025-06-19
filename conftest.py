@@ -2,6 +2,7 @@ import pytest
 import tkinter as tk
 import inspect
 import asyncio
+import pathlib, sys, os
 
 # ---------------------------------------------------------------------------
 # Fixture: gui
@@ -10,6 +11,10 @@ import asyncio
 # We create it here so that those tests receive a fully-initialised GUI object
 # while keeping resource usage minimal.
 # ---------------------------------------------------------------------------
+
+ROOT_DIR = pathlib.Path(__file__).resolve().parent  # project root
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 @pytest.fixture
 def gui():

@@ -1,4 +1,0 @@
-malicious-site.com
-suspicious-domain.net
-bad-url.org
-example-threat.com

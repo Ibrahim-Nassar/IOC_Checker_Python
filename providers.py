@@ -1,110 +1,97 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Callable, Dict, List
-import asyncio
-from typing import Awaitable, Dict as _Dict, Callable as _Callable
+"""
+Provider orchestrator with per-source scoring and simple quorum logic.
+This version drops all allow-lists and whitelists.
+"""
+from typing import Dict
 
-# Fallback stub returning False when provider module missing
+# ------------------------------------------------------------------
+# Helper: import provider.check or fall back to stub returning defaults
+# ------------------------------------------------------------------
 
-def _safe_import_check(module_name: str, attr: str = "check"):
+def _import_or_stub(module_name: str, default):
     try:
         mod = __import__(module_name)
-        return getattr(mod, attr)
-    except Exception:  # pragma: no cover
-        return lambda _: False
+        return getattr(mod, "check")
+    except Exception:   # pragma: no cover – missing provider or attr
+        return lambda _ioc: default
 
-# Rebuild PROVIDERS dict using safe imports
-PROVIDERS: Dict[str, Callable[[str], bool]] = {
-    "VirusTotal":      _safe_import_check("virustotal_api"),
-    "AbuseIPDB":       _safe_import_check("abuseipdb_api"),
-    "AlienVault OTX":  _safe_import_check("otx_api"),
-    "ThreatFox":       _safe_import_check("threatfox_api"),
-    "GreyNoise":       _safe_import_check("greynoise_api"),
+# Provider specific check functions (or stubs)
+vt     = _import_or_stub("virustotal_api", {"positives": 0, "total": 1})
+abuse  = _import_or_stub("abuseipdb_api",  {"confidence": 0, "reports": 0})
+otx    = _import_or_stub("otx_api",        False)
+tfox   = _import_or_stub("threatfox_api",  False)
+gnoise = _import_or_stub("greynoise_api",  "benign")
+
+# ------------------------------------------------------------------
+# Per-provider maliciousness thresholds
+# ------------------------------------------------------------------
+_TH = {
+    "virustotal": lambda x: x.get("positives", 0) >= 5
+                        or x.get("positives", 0) / max(x.get("total", 1), 1) >= 0.10,
+    "abuseipdb":  lambda x: x.get("confidence", 0) >= 50 and x.get("reports", 0) >= 10,
+    "greynoise":  lambda x: str(x).lower() == "malicious",
+    "threatfox":  bool,   # already boolean
+    "alienvault": bool,   # already boolean (OTX)
 }
 
-THREADS: int = min(5, len(PROVIDERS))  # cap threads to avoid oversubscription
+# ------------------------------------------------------------------
+# Public provider map – *values must return bool.*
+# ------------------------------------------------------------------
+PROVIDERS: Dict[str, callable] = {
+    "VirusTotal":  lambda i: _TH["virustotal"](vt(i)),
+    "AbuseIPDB":   lambda i: _TH["abuseipdb"](abuse(i)),
+    "AlienVault":  otx,
+    "ThreatFox":   tfox,
+    "GreyNoise":   lambda i: _TH["greynoise"](gnoise(i)),
+}
+
+# Votes required for a malicious verdict
+QUORUM = 2
 
 
 def scan(ioc: str) -> Dict[str, bool]:
-    """Return per-provider verdicts for one IOC."""
-    verdicts: Dict[str, bool] = {}
-    with ThreadPoolExecutor(max_workers=THREADS) as pool:
-        fut_map = {pool.submit(fn, ioc): name for name, fn in PROVIDERS.items()}
-        for fut in as_completed(fut_map):
-            verdicts[fut_map[fut]] = bool(fut.result())
-    return verdicts
+    """Scan *ioc* across all providers.
 
-# ---------------------------
-# Async implementation
-# ---------------------------
+    Returns a dictionary with one key per provider.  Two additional keys
+    are added:
+        verdict     → "malicious" | "clean"
+        flagged_by  → list[str] of providers that returned *True*
 
-def _safe_import_check_async(module_name: str, attr: str = "check_async"):
-    """Attempt to import *attr* from *module_name* – return stub on failure."""
-    try:
-        mod = __import__(module_name)
-        return getattr(mod, attr)
-    except Exception:  # pragma: no cover
-        async def _stub(_):
-            return False
-        return _stub
+    Provider errors are coerced into *False* so a single flaky backend
+    never breaks the scan.
+    """
+    res: Dict[str, bool] = {}
+    for name, fn in PROVIDERS.items():
+        try:
+            res[name] = bool(fn(ioc))
+        except Exception:       # pragma: no cover – provider failed
+            res[name] = False
 
+    malicious = sum(res.values()) >= QUORUM
+    res["verdict"] = "malicious" if malicious else "clean"
+    res["flagged_by"] = [p for p, bad in res.items() if p in PROVIDERS and bad]
+    return res
 
-# Coroutines used by *scan_async*
-PROVIDERS_ASYNC: _Dict[str, _Callable[[str], Awaitable[bool]]] = {
-    "VirusTotal":      _safe_import_check_async("virustotal_api"),
-    "AbuseIPDB":       _safe_import_check_async("abuseipdb_api"),
-    "AlienVault OTX":  _safe_import_check_async("otx_api"),
-    "ThreatFox":       _safe_import_check_async("threatfox_api"),
-    "GreyNoise":       _safe_import_check_async("greynoise_api"),
-}
-
-
-async def scan_async(ioc: str) -> _Dict[str, bool]:
-    """Return per-provider verdicts concurrently using *asyncio* coroutines."""
-    # Spawn one task per provider while keeping track of the names.
-    names: list[str] = []
-    coros: list[Awaitable[bool]] = []
-    for name, fn in PROVIDERS_ASYNC.items():
-        names.append(name)
-        coros.append(fn(ioc))
-
-    results = await asyncio.gather(*coros, return_exceptions=False)
-    return {name: bool(res) for name, res in zip(names, results)}
-
-# ---------------------------
-# Utility helpers (re-exported)
-# ---------------------------
+# ------------------------------------------------------------------
+# Misc helpers kept for backward-compatibility
+# ------------------------------------------------------------------
 
 def _extract_ip(value: str) -> str:
-    """Return *value* stripped from port-suffixes and brackets.
-
-    Examples
-    --------
-    >>> _extract_ip("1.2.3.4:443")
-    '1.2.3.4'
-    >>> _extract_ip("[2001:db8::1]:80")
-    '2001:db8::1'
-    """
+    """Strip port suffix and brackets from *value* if present."""
     if value.startswith("[") and "]" in value:
         return value.split("]")[0][1:]
     if value.count(":") == 1 and ":" in value:
         return value.split(":")[0]
     return value
 
-# ------------------------------------------------------------------
-# Public provider collections expected by *ioc_checker*  
-# ------------------------------------------------------------------
-
-# To keep the unit-tests lightweight we expose *empty* provider lists.  The
-# checker gracefully handles the case when no providers are configured.
+# These lists are still imported by *ioc_checker* but are no longer used
 ALWAYS_ON: list = []
 RATE_LIMIT: list = []
 
-# Ensure public export when using * from providers
 __all__ = [
     "scan",
-    "scan_async",
     "PROVIDERS",
-    "PROVIDERS_ASYNC",
+    "QUORUM",
     "_extract_ip",
     "ALWAYS_ON",
     "RATE_LIMIT",

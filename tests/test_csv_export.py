@@ -1,26 +1,20 @@
-from pathlib import Path
-import csv, os
-from reports import write_clean_csv
+import csv, pathlib, os
+from reports import write_csv
 
 
-def test_write_clean_csv(tmp_path):
-    out = tmp_path / "out.csv"
-    sample = [{
-        "value": "1.1.1.1",
-        "type":  "ip",
-        "results": {
-            "virustotal":   {"status": "clean"},
-            "abuseipdb":    {"status": "malicious"},
-        }
-    }]
-    write_clean_csv(out, sample)
+def test_write_csv(tmp_path):
+    rows = [
+        {"ioc": "1.1.1.1", "verdict": "malicious", "flagged_by": "DummyTrue"},
+        {"ioc": "good.com", "verdict": "clean",     "flagged_by": ""},
+    ]
+    out_path = tmp_path / "results.csv"
+    write_csv(out_path, rows)
 
-    assert out.exists() and out.stat().st_size > 0
-
-    # Validate header & first data row
-    with out.open(encoding="utf-8") as fh:
-        rows = list(csv.reader(fh))
-    header = rows[0]
-    assert "ioc" in header and "overall" in header
-    data   = rows[1]
-    assert data[header.index("ioc")] == "1.1.1.1" 
+    assert out_path.exists() and out_path.stat().st_size > 0
+    with out_path.open(encoding="utf-8") as fh:
+        data = list(csv.reader(fh))
+    # Header should match dynamic keys
+    header = data[0]
+    assert header == ["ioc", "verdict", "flagged_by"]
+    # No blank lines (Windows \r\n edge-case)
+    assert len(data) == len(rows) + 1 
