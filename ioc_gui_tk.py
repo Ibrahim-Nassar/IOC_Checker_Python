@@ -359,7 +359,13 @@ class IOCCheckerGUI:
         settings_menu.add_command(label="API Keys...", command=self._configure_api_keys)
         settings_menu.add_separator()
         settings_menu.add_command(label="Providers...", command=self._configure_providers)
-        settings_menu.add_command(label="Clear cache", command=lambda: cache.clear())
+        # Only enable the "Clear cache" action if the optional cache helper is available
+        _clear_fn = getattr(cache, "clear", None)
+        if callable(_clear_fn):
+            settings_menu.add_command(label="Clear cache", command=_clear_fn)
+        else:
+            # Provide a disabled placeholder to keep menu layout consistent
+            settings_menu.add_command(label="Clear cache", state="disabled")
         
         # Help menu
         help_menu = tk.Menu(menubar, tearoff=0)
