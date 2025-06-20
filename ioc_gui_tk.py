@@ -56,6 +56,11 @@ AVAILABLE_PROVIDERS = {
 
 DEFAULT_ALWAYS_ON = ['virustotal', 'abuseipdb']
 
+# Ensure project root is on sys.path so that 'providers' module is resolvable
+ROOT_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+if ROOT_PATH not in sys.path:
+    sys.path.insert(0, ROOT_PATH)
+
 class IOCCheckerGUI:
     """Simplified IOC Checker GUI that never crashes on startup."""
     
@@ -465,22 +470,24 @@ class IOCCheckerGUI:
         output_frame = ttk.LabelFrame(main, text="Results", padding=10)
         output_frame.grid(row=5, column=0, sticky="nsew", pady=(0, 10))
         main.rowconfigure(5, weight=1)
-          # Use Treeview for results display
-        self.out = ttk.Treeview(output_frame, columns=('Type', 'IOC', 'Status', 'Flagged By', 'Details'), show='headings', height=15)
         
-        # Configure columns
-        self.out.heading('Type', text='Type')
-        self.out.heading('IOC', text='Indicator')
-        self.out.heading('Status', text='Verdict')
-        self.out.heading('Flagged By', text='FlaggedBy')
-        self.out.heading('Details', text='Details')
+        # Dynamically build the column list – one extra column for every provider
+        import providers as _prov  # local import to avoid top-level dependency
+        self.provider_columns = tuple(_prov.PROVIDERS.keys())
+        self.columns = ('Type', 'IOC', 'Verdict', 'Flagged By') + self.provider_columns
+
+        # Use Treeview for results display with the dynamic columns
+        self.out = ttk.Treeview(output_frame, columns=self.columns, show='headings', height=15)
         
-        # Set column widths
-        self.out.column('Type', width=80)
-        self.out.column('IOC', width=200)
-        self.out.column('Status', width=100)
-        self.out.column('Flagged By', width=150)
-        self.out.column('Details', width=200)
+        # Configure headings and reasonable default widths
+        for col in self.columns:
+            heading = col if col not in self.provider_columns else col  # display as-is
+            self.out.heading(col, text=heading)
+            # Narrower default for provider verdict columns
+            width = 120 if col in self.provider_columns else 100
+            if col == 'IOC':
+                width = 200
+            self.out.column(col, width=width)
         
         self.out.pack(fill='both', expand=True)
 
@@ -493,7 +500,7 @@ class IOCCheckerGUI:
 
             def _patched_cget(option):  # type: ignore[override]
                 if option == "columns":
-                    return ("Type", "IOC", "Status", "Flagged By", "Details")
+                    return self.columns  # dynamic columns list
                 return _orig_cget(option)
 
             self.out.cget = _patched_cget  # type: ignore[assignment]
@@ -895,11 +902,12 @@ class IOCCheckerGUI:
         if not self._prompt_provider_selection_if_needed():
             return
         
-        # Get selected providers after potential dialog
-        selected_providers = [provider for provider, enabled in self.provider_config.items() if enabled]
+        # Build list of selected display names (matching PROVIDERS keys)
+        selected_display_names = [info[1] for info in self.providers_info if self.provider_config.get(info[0], False)]
         
         self._clear()
-        placeholder_id = self.out.insert('', 'end', values=(ioc_type, ioc_value, "Checking...", ""))
+        provider_blanks = tuple("" for _ in getattr(self, "provider_columns", ()))
+        placeholder_id = self.out.insert('', 'end', values=(ioc_type, ioc_value, "Checking...", "", *provider_blanks))
         # Store the placeholder row ID so we can update it later
         self._current_placeholder = placeholder_id
         self.root.update()
@@ -910,26 +918,37 @@ class IOCCheckerGUI:
                 # Local import keeps top-level dependencies minimal
                 from providers import scan  # noqa: WPS433 (allow runtime import)
 
-                # Perform synchronous scan
-                results = scan(ioc_value)
+                # Perform synchronous scan with the selected subset
+                results = scan(ioc_value, selected_display_names)
 
-                # Only include real provider names (exclude 'verdict' and 'flagged_by')
+                # Compose per-provider verdicts
+                from providers import PROVIDERS  # noqa: WPS433
+                from IOC_Checker_Python.quota import remaining as _quota_left
+
+                # Determine which providers were actually queried
+                selected_display = [info[1] for info in self.providers_info if self.provider_config.get(info[0], False)]
+
+                provider_verdicts = []
+                for name in PROVIDERS:
+                    if name in selected_display:
+                        verdict_text = "Malicious" if results.get(name) else "Clean"
+                        provider_verdicts.append(f"{verdict_text} ({_quota_left(name)} requests left)")
+                    else:
+                        provider_verdicts.append("Skipped")
+
+                # Identify which providers flagged
                 import providers as _prov
                 flagged = [p for p, bad in results.items() if p in _prov.PROVIDERS and bad]
                 verdict = "Malicious" if flagged else "Clean"
                 flagged_text = ", ".join(flagged)
 
+                # Build the full row tuple: Type, IOC, Verdict, Flagged_By, per-provider verdicts...
+                row_values = (ioc_type, ioc_value, verdict, flagged_text, *provider_verdicts)
+
                 # Push the update back to the GUI thread
                 self.root.after(
                     0,
-                    lambda: self._show_result(
-                        ioc_type,
-                        ioc_value,
-                        verdict,
-                        "",          # no extra summary details
-                        flagged_text,
-                        self._current_placeholder,
-                    ),
+                    lambda: self._show_result(row_values, self._current_placeholder),
                 )
 
             except Exception as exc:  # pragma: no cover – surface any runtime errors
@@ -1036,35 +1055,51 @@ class IOCCheckerGUI:
         self._show_result("Batch", "Error", "Failed", error_msg, "")
         messagebox.showerror("Batch Processing Error", f"Batch processing failed:\n\n{error_msg}")
 
-    def _show_result(self, ioc_type, ioc_value, status, details, flagged_by="", row_id=None):
-        """Show a result in the output."""
-        # Initialize all_results if needed
-        if not hasattr(self, 'all_results'):
+    def _show_result(self, *args, **kwargs):
+        """Show a result in the output.
+
+        Supports both the legacy signature
+            (_ioc_type, _ioc_value, _status, _details, _flagged_by="", row_id=None)
+        and the new single-tuple signature where the first positional
+        argument is already the complete ``values`` tuple matching
+        ``self.columns``.
+        """
+
+        # Unpack parameters depending on call style
+        if isinstance(args[0], (tuple, list)):
+            # New style: first arg is the ready-to-use tuple
+            values_tuple = tuple(args[0])
+            row_id = (args[1] if len(args) > 1 else None) or kwargs.get("row_id")
+            status_text = str(values_tuple[2]).lower() if len(values_tuple) >= 3 else ""
+        else:
+            # Legacy style – map to old parameters
+            ioc_type, ioc_value, status, details, flagged_by = args[:5]
+            row_id = args[5] if len(args) > 5 else kwargs.get("row_id")
+            # Pad with per-provider blanks to match column count
+            provider_blanks = tuple("" for _ in getattr(self, "provider_columns", ()))
+            values_tuple = (ioc_type, ioc_value, status, flagged_by, *provider_blanks)
+            status_text = status.lower()
+
+        # Ensure all_results exists
+        if not hasattr(self, "all_results"):
             self.all_results = []
-        
-        # Create result tuple
-        result_tuple = (ioc_type, ioc_value, status, flagged_by, details)
-        
-        # Store in all_results for filtering
-        self.all_results.append(result_tuple)
-        
-        # Apply filter when displaying
-        show_only = self.show_threats_var.get()
+
+        self.all_results.append(values_tuple)
+
+        # Filter logic – malicious/suspicious/error only when toggle active
         def _should_display():
-            if not show_only:
+            if not self.show_threats_var.get():
                 return True
-            return status.lower() in ["malicious", "suspicious", "error", "failed"]
+            return status_text in ("malicious", "suspicious", "error", "failed")
 
         if row_id and self.out.exists(row_id):
-            # Update existing row
             if _should_display():
-                self.out.item(row_id, values=result_tuple)
+                self.out.item(row_id, values=values_tuple)
             else:
-                # Remove placeholder if filter hides it
                 self.out.delete(row_id)
         else:
             if _should_display():
-                self.out.insert('', 'end', values=result_tuple)
+                self.out.insert("", "end", values=values_tuple)
 
     def _stop_processing(self):
         """Stop current processing."""
@@ -1362,19 +1397,11 @@ class IOCCheckerGUI:
         
         # Re-add items based on filter
         for result in getattr(self, 'all_results', []):
-            if len(result) >= 3:  # Ensure we have at least type, ioc, status
-                ioc_type, ioc_value, status = result[0], result[1], result[2]
-                flagged_by = result[3] if len(result) > 3 else ""
-                details = result[4] if len(result) > 4 else ""
-                
-                # Apply filter
-                if show_only:
-                    # Only show malicious, suspicious, or error results
-                    if status.lower() in ["malicious", "suspicious", "error", "failed"]:
-                        self.out.insert('', 'end', values=result)
-                else:
-                    # Show all results
-                    self.out.insert('', 'end', values=result)
+            if len(result) >= 3:
+                status = str(result[2]).lower()
+                if show_only and status not in ("malicious", "suspicious", "error", "failed"):
+                    continue
+                self.out.insert('', 'end', values=result)
     
     def display_result(self, result: dict):
         """Display a single IOC result, respecting the threat-only filter."""
@@ -1388,7 +1415,9 @@ class IOCCheckerGUI:
         if not hasattr(self, 'all_results'):
             self.all_results = []
         
-        result_tuple = (ioc_type, ioc_value, verdict, flagged_by, details)
+        # Pad with per-provider blanks to match column count
+        provider_blanks = tuple("" for _ in getattr(self, "provider_columns", ()))
+        result_tuple = (ioc_type, ioc_value, verdict, flagged_by, *provider_blanks)
         self.all_results.append(result_tuple)
         
         # Only insert if filter allows it

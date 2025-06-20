@@ -2,7 +2,11 @@
 Provider orchestrator with per-source scoring and simple quorum logic.
 This version drops all allow-lists and whitelists.
 """
-from typing import Dict
+from typing import Dict, Iterable, Optional
+try:
+    from .quota import increment as _quota_inc  # when imported as package
+except ImportError:  # pragma: no cover – fallback for direct script execution
+    from IOC_Checker_Python.quota import increment as _quota_inc
 
 # ------------------------------------------------------------------
 # Helper: import provider.check or fall back to stub returning defaults
@@ -25,11 +29,18 @@ gnoise = _import_or_stub("greynoise_api",  "benign")
 # ------------------------------------------------------------------
 # Per-provider maliciousness thresholds
 # ------------------------------------------------------------------
+def _gn_thr(val):  # GreyNoise helper – accepts bool or str
+    if isinstance(val, bool):
+        return val  # True == malicious
+    if isinstance(val, str):
+        return val.lower() == "malicious"
+    return False
+
 _TH = {
     "virustotal": lambda x: x.get("positives", 0) >= 5
                         or x.get("positives", 0) / max(x.get("total", 1), 1) >= 0.10,
     "abuseipdb":  lambda x: x.get("confidence", 0) >= 50 and x.get("reports", 0) >= 10,
-    "greynoise":  lambda x: str(x).lower() == "malicious",
+    "greynoise":  _gn_thr,
     "threatfox":  bool,   # already boolean
     "alienvault": bool,   # already boolean (OTX)
 }
@@ -49,23 +60,34 @@ PROVIDERS: Dict[str, callable] = {
 QUORUM = 2
 
 
-def scan(ioc: str) -> Dict[str, bool]:
-    """Scan *ioc* across all providers.
+def scan(ioc: str, selected: Optional[Iterable[str]] = None) -> Dict[str, bool]:
+    """Scan *ioc* across the given *selected* providers.
 
-    Returns a dictionary with one key per provider.  Two additional keys
-    are added:
-        verdict     → "malicious" | "clean"
-        flagged_by  → list[str] of providers that returned *True*
+    Parameters
+    ----------
+    ioc : str
+        Indicator of compromise.
+    selected : Iterable[str] | None
+        Subset of provider display-names to query. ``None`` (default)
+        means *all* providers.
 
-    Provider errors are coerced into *False* so a single flaky backend
-    never breaks the scan.
+    Returns
+    -------
+    dict
+        Per-provider boolean map plus keys ``verdict`` and ``flagged_by``.
     """
     res: Dict[str, bool] = {}
+    selected_set = {s for s in selected} if selected is not None else None
+
     for name, fn in PROVIDERS.items():
+        if selected_set is not None and name not in selected_set:
+            continue
         try:
             res[name] = bool(fn(ioc))
+            _quota_inc(name)
         except Exception:       # pragma: no cover – provider failed
             res[name] = False
+            _quota_inc(name)
 
     malicious = sum(res.values()) >= QUORUM
     res["verdict"] = "malicious" if malicious else "clean"
