@@ -39,6 +39,13 @@ from tkinter import messagebox as tb_messagebox
 # Standard tkinter.ttk is used for styling
 TTK_AVAILABLE = True
 
+# --- provider registry ----
+from providers import get_providers
+
+ALL_PROVIDERS = get_providers()
+PROVIDER_LOOKUP: dict[str, object] = {p.NAME.lower(): p for p in ALL_PROVIDERS}
+# --------------------------
+
 log = logging.getLogger("gui")
 
 SCRIPT = "ioc_checker.py"
@@ -473,7 +480,7 @@ class IOCCheckerGUI:
         
         # Dynamically build the column list – one extra column for every provider
         import providers as _prov  # local import to avoid top-level dependency
-        self.provider_columns = tuple(_prov.PROVIDERS.keys())
+        self.provider_columns = tuple(PROVIDER_LOOKUP.keys())
         self.columns = ('Type', 'IOC', 'Verdict', 'Flagged By') + self.provider_columns
 
         # Use Treeview for results display with the dynamic columns
@@ -952,7 +959,8 @@ class IOCCheckerGUI:
                 )
 
             except Exception as exc:  # pragma: no cover – surface any runtime errors
-                self.root.after(0, lambda: self._show_result(ioc_type, ioc_value, "Error", str(exc), "", self._current_placeholder))
+                err_msg = str(exc)
+                self.root.after(0, lambda msg=err_msg: self._show_result(ioc_type, ioc_value, "Error", msg, "", self._current_placeholder))
         
         # Run in thread to avoid blocking GUI
         import threading
@@ -1108,9 +1116,27 @@ class IOCCheckerGUI:
             self.process = None
 
     def _poll_queue(self):
-        """Poll the queue for subprocess output."""
-        # Placeholder for queue polling
-        self.root.after(100, self._poll_queue)
+        """Poll the queue for background thread output and update UI."""
+        try:
+            while True:
+                line = self.q.get_nowait()  # type: ignore[attr-defined]
+                # Append or process output – minimal handling: update status label
+                if line:
+                    try:
+                        self.progress_label.config(text=str(line))
+                    except Exception:
+                        pass
+        except queue.Empty:
+            # Nothing to process this time
+            pass
+        except Exception as exc:
+            exc_str = str(exc)
+            try:
+                self.progress_label.config(text=f"Error: {exc_str}")
+            except Exception:
+                pass
+        finally:
+            self.root.after(100, self._poll_queue)
 
     def run(self):
         """Start the GUI application."""
