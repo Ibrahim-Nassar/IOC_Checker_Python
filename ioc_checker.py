@@ -18,6 +18,8 @@ from provider_interface import IOCResult
 from providers import get_providers, ALWAYS_ON, RATE_LIMIT
 from reports   import WRITERS, write_csv
 from loader import load_iocs
+import os
+from api_key_store import load as _load_key
 
 # Ensure UTF-8 output on all platforms
 try:
@@ -214,4 +216,17 @@ def _flagged_by(provider_results: Dict[str, Dict[str, Any]]) -> str:
 ###############################################################################
 
 if __name__ == "__main__":
+    # --- auto-load API keys -------------------------
+    for _env in (
+        "VT_API_KEY",
+        "OTX_API_KEY",
+        "ABUSEIPDB_API_KEY",
+        "THREATFOX_API_KEY",
+        "GREYNOISE_API_KEY",
+    ):
+        if _env not in os.environ:
+            _val = _load_key(_env)
+            if _val:
+                os.environ[_env] = _val
+    # ------------------------------------------------
     main()
