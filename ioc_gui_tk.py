@@ -1235,6 +1235,28 @@ class IOCCheckerGUI:
         pass
 
     # -------------------------------------------------------------------
+    # Compatibility shims for older theme-toggle calls
+    def _set_light_mode(self):
+        """Legacy alias – switches to light theme."""
+        if hasattr(self, "_apply_theme"):
+            try:
+                self._apply_theme("light")
+            except TypeError:
+                # Fallback: toggle flag and call
+                if hasattr(self, "dark_mode"):
+                    self.dark_mode.set(False)
+                self._apply_theme()
+
+    def _set_dark_mode(self):
+        """Legacy alias – switches to dark theme."""
+        if hasattr(self, "_apply_theme"):
+            try:
+                self._apply_theme("dark")
+            except TypeError:
+                if hasattr(self, "dark_mode"):
+                    self.dark_mode.set(True)
+                self._apply_theme()
+    # ------------------------------------------------------------------
 
 
 if __name__ == "__main__":
