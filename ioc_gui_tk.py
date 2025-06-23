@@ -750,21 +750,7 @@ class IOCCheckerGUI:
             self.settings['provider_config'] = self.provider_config
             self._save_settings(self.settings)
             
-            # Show confirmation
-            enabled_providers = [pid for pid, enabled in self.provider_config.items() if enabled]
-            if enabled_providers:
-                provider_names = []
-                for provider_id in enabled_providers:
-                    provider_info = next((p for p in self.providers_info if p[0] == provider_id), None)
-                    if provider_info:
-                        provider_names.append(provider_info[1])
-                
-                messagebox.showinfo("Providers Updated", 
-                                  f"Selected providers: {', '.join(provider_names)}")
-            else:
-                messagebox.showinfo("No Providers Selected", 
-                                  "No providers are currently selected. You will be prompted to select providers when checking IOCs.")
-            
+            # Close the dialog
             config_win.destroy()
         
         def select_filtered():
@@ -914,8 +900,12 @@ class IOCCheckerGUI:
         for item in self.out.get_children():
             self.out.delete(item)
 
+    def _selected_providers(self):
+        """Return list of enabled provider objects."""
+        return [p for p in ALL_PROVIDERS if self.provider_config.get(p.NAME.lower(), False)]
+
     def _start_single(self, *args):
-        """Start single IOC check."""
+        """Check a single IOC."""
         ioc_type = self.typ.get()
         ioc_value = self.val.get().strip()
         
@@ -927,58 +917,105 @@ class IOCCheckerGUI:
         if not self._prompt_provider_selection_if_needed():
             return
         
-        # Build list of selected display names (matching PROVIDERS keys)
-        selected_display_names = [info[1] for info in self.providers_info if self.provider_config.get(info[0], False)]
-        
+        # Clear previous results
         self._clear()
-        provider_blanks = tuple("" for _ in getattr(self, "provider_columns", ()))
-        placeholder_id = self.out.insert('', 'end', values=(ioc_type, ioc_value, "Checking...", "", *provider_blanks))
-        # Store the placeholder row ID so we can update it later
-        self._current_placeholder = placeholder_id
+        
+        # Add placeholder row with processing status
+        self._current_placeholder = self.out.insert('', 'end', values=(ioc_type, ioc_value, "Processing...", ""))
         self.root.update()
-          # Start checking in a separate thread
+        
         def run_single_check():
-            """Thread worker to scan a single IOC using the lightweight providers.scan helper."""
             try:
-                # Local import keeps top-level dependencies minimal
-                from providers import scan  # noqa: WPS433 (allow runtime import)
-
-                # Perform synchronous scan with the selected subset
-                results = scan(ioc_value, selected_display_names)
-
-                # Compose per-provider verdicts
-                from providers import PROVIDERS  # noqa: WPS433
-                from quota import remaining as _quota_left
-
-                # Determine which providers were actually queried
-                selected_display = [info[1] for info in self.providers_info if self.provider_config.get(info[0], False)]
-
-                provider_verdicts = []
-                for name in PROVIDERS:
-                    if name in selected_display:
-                        verdict_text = "Malicious" if results.get(name.NAME) else "Clean"
-                        provider_verdicts.append(f"{verdict_text} ({_quota_left(name.NAME)} requests left)")
-                    else:
-                        provider_verdicts.append("Skipped")
-
-                # Identify which providers flagged
-                import providers as _prov
-                flagged = [p for p, bad in results.items() if p in _prov.PROVIDERS and bad]
-                verdict = "Malicious" if flagged else "Clean"
-                flagged_text = ", ".join(flagged)
-
-                # Build the full row tuple: Type, IOC, Verdict, Flagged_By, per-provider verdicts...
-                row_values = (ioc_type, ioc_value, verdict, flagged_text, *provider_verdicts)
-
-                # Push the update back to the GUI thread
-                self.root.after(
-                    0,
-                    lambda: self._show_result(row_values, self._current_placeholder),
-                )
-
-            except Exception as exc:  # pragma: no cover – surface any runtime errors
-                err_msg = str(exc)
-                self.root.after(0, lambda msg=err_msg: self._show_result(ioc_type, ioc_value, "Error", msg, "", self._current_placeholder))
+                # Build command
+                cmd = [PYTHON, SCRIPT, ioc_type, ioc_value]
+                
+                # Get selected providers
+                selected = [p.NAME.lower() for p in self._selected_providers()]
+                # Treat as "all" if the *set* of selected names equals the set of all provider names.
+                all_names = {p.NAME.lower() for p in ALL_PROVIDERS}
+                if set(selected) != all_names:
+                    # Only some providers → pass explicit list
+                    cmd += ["--providers", ",".join(selected)]
+                print("DEBUG CMD →", " ".join(cmd), flush=True)
+                
+                # Run subprocess
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                
+                if result.returncode == 0:
+                    # Parse CLI output format: "ProviderName     : status   additional_info"
+                    lines = result.stdout.strip().split('\n')
+                    provider_verdicts = {}
+                    overall_verdict = "Clean"
+                    flagged_providers = []
+                    
+                    # Map CLI provider names to column names
+                    provider_name_map = {
+                        "ThreatFox": "threatfox",
+                        "AbuseIPDB": "abuseipdb", 
+                        "OTX AlienVault": "otx",
+                        "VirusTotal": "virustotal",
+                        "GreyNoise": "greynoise"
+                    }
+                    
+                    for line in lines:
+                        # Look for provider result lines (contain " : ")
+                        if " : " in line and not line.startswith("IOC"):
+                            parts = line.split(" : ", 1)
+                            if len(parts) == 2:
+                                provider_name = parts[0].strip()
+                                status_info = parts[1].strip()
+                                
+                                # Extract the main status (first word)
+                                status = status_info.split()[0] if status_info.split() else "unknown"
+                                
+                                # Map status codes to friendly names
+                                _status_map = {
+                                    "missing_api_key": "No API key",
+                                    "invalid_api_key": "Bad key", 
+                                    "quota_exceeded": "Quota!",
+                                    "network_error": "Net error",
+                                    "error_401": "Auth error",
+                                    "error": "Error",
+                                    "ERROR": "Error",
+                                    "benign": "Clean",
+                                    "malicious": "Malicious"
+                                }
+                                
+                                friendly_status = _status_map.get(status, status)
+                                
+                                # Map provider name to column name
+                                column_name = provider_name_map.get(provider_name, provider_name.lower().replace(" ", ""))
+                                provider_verdicts[column_name] = friendly_status
+                                
+                                # Track if any provider found it malicious
+                                if status in ["malicious", "suspicious"]:
+                                    overall_verdict = "Malicious"
+                                    flagged_providers.append(provider_name)
+                    
+                    # Build the complete row tuple matching self.columns
+                    if provider_verdicts:
+                        flagged_by = ", ".join(flagged_providers) if flagged_providers else ""
+                        
+                        # Build row tuple: (Type, IOC, Verdict, Flagged By, provider1, provider2, ...)
+                        provider_values = []
+                        for col in self.provider_columns:
+                            provider_values.append(provider_verdicts.get(col, ""))
+                        
+                        row_values = (ioc_type, ioc_value, overall_verdict, flagged_by) + tuple(provider_values)
+                        self.root.after(0, lambda: self._show_result(row_values, self._current_placeholder))
+                        return
+                    
+                    # Fallback if parsing fails
+                    self.root.after(0, lambda: self._show_result(ioc_type, ioc_value, "Complete", "", "", self._current_placeholder))
+                else:
+                    error_msg = result.stderr or "Unknown error"
+                    self.root.after(0, lambda: self._show_result(ioc_type, ioc_value, "Error", error_msg, "", self._current_placeholder))
+                    
+            except subprocess.TimeoutExpired:
+                self.root.after(0, lambda: self._show_result(ioc_type, ioc_value, "Error", "Timeout", "", self._current_placeholder))
+            except Exception as exc:
+                error_msg = str(exc)
+                self.root.after(0, lambda: self._show_result(ioc_type, ioc_value, "Error", error_msg, "", self._current_placeholder))
         
         # Run in thread to avoid blocking GUI
         import threading
@@ -1238,10 +1275,8 @@ class IOCCheckerGUI:
                 save(env_var, key_val)
                 if key_val:
                     os.environ[env_var] = key_val
-            messagebox.showinfo(
-                "API Keys saved",
-                "Keys have been stored.\nYou may need to restart scans to use them."
-            )
+            # Close the dialog after saving
+            config_window.destroy()
 
         ttk.Button(btn_frame, text="Save", command=_save_keys).grid(row=0, column=0, padx=4)
         ttk.Button(btn_frame, text="Close", command=config_window.destroy).grid(row=0, column=1)
