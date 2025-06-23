@@ -20,6 +20,7 @@ from loader import load_iocs
 import sys
 import os
 from dotenv import load_dotenv
+import tkinter.messagebox as messagebox  # Ensure messagebox module alias is available
 
 try:
     import cache  # type: ignore
@@ -1192,21 +1193,37 @@ class IOCCheckerGUI:
 
         api_tab.columnconfigure(1, weight=1)
 
+        # Mapping of ENV VAR -> StringVar for later saving
+        self._api_vars: dict[str, tk.StringVar] = {}
+
         for row, (prov_name, env_var) in enumerate(providers_env):
             tk.Label(api_tab, text=prov_name).grid(row=row, column=0, sticky="w", padx=(0, 10), pady=5)
             var = tk.StringVar(value=os.environ.get(env_var, ""))
+            # Store the StringVar for later bulk-save
+            self._api_vars[env_var] = var
             entry = ttk.Entry(api_tab, textvariable=var, show="•", width=50)
             entry.grid(row=row, column=1, sticky="ew", pady=5)
 
-            def _on_focus_out(event, _env=env_var, _v=var):
-                from api_key_store import save as _save_key
-                _save_key(_env, _v.get())
-                if _v.get():
-                    os.environ[_env] = _v.get()
-                else:
-                    os.environ.pop(_env, None)
+        # ------------------------------------------------------------------
+        # Save / Close buttons
+        # ------------------------------------------------------------------
+        btn_frame = ttk.Frame(api_tab)
+        btn_frame.grid(row=len(providers_env), columnspan=2, pady=(10, 0), sticky="e")
 
-            entry.bind("<FocusOut>", _on_focus_out)
+        def _save_keys():
+            from api_key_store import save
+            for env_var, var in self._api_vars.items():
+                key_val = var.get().strip()
+                save(env_var, key_val)
+                if key_val:
+                    os.environ[env_var] = key_val
+            messagebox.showinfo(
+                "API Keys saved",
+                "Keys have been stored.\nYou may need to restart scans to use them."
+            )
+
+        ttk.Button(btn_frame, text="Save", command=_save_keys).grid(row=0, column=0, padx=4)
+        ttk.Button(btn_frame, text="Close", command=config_window.destroy).grid(row=0, column=1)
         # ---------------------------------------------------------------------
         return
         # ... existing code ...
