@@ -43,20 +43,19 @@ RATE_LIMIT: List[IOCProvider] = [
 ]
 
 
-def get_providers(selected: List[str] | None = None) -> List[IOCProvider]:
-    """Return active provider instances.
+def get_providers(selected: list[str] | None = None) -> list[IOCProvider]:
+    """Return provider instances.
 
-    Parameters
-    ----------
-    selected : list[str] | None
-        Optional case-insensitive list of provider ``NAME`` values to include.
-        ``None`` means all providers (``PROVIDERS``).
+    If *selected* is provided, items are matched **case-insensitively** against
+    each provider's ``NAME`` attribute.  When *selected* is ``None`` the full
+    registry is returned.
     """
-    if not selected:
-        return list(PROVIDERS)
 
-    sel = {s.lower() for s in selected}
-    return [p for p in PROVIDERS if p.NAME.lower() in sel]
+    if selected:
+        sel = {s.lower().strip() for s in selected}
+        return [p for p in PROVIDERS if p.NAME.lower() in sel]
+
+    return PROVIDERS.copy()
 
 
 __all__ = [

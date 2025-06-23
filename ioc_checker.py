@@ -11,9 +11,7 @@ import asyncio
 import logging
 import pathlib
 import sys
-import aiohttp
 from typing import Dict, Any, List
-from aiohttp_client_cache import CachedSession, SQLiteBackend
 # --- auto-load API keys -------------------------
 import os
 from api_key_store import load as _load_key
@@ -30,15 +28,45 @@ for _env in (
         if _val:
             os.environ[_env] = _val
 # ------------------------------------------------
-from provider_interface import IOCResult
+from provider_interface import IOCResult, IOCProvider
 from providers import get_providers, ALWAYS_ON, RATE_LIMIT
 from reports   import WRITERS, write_csv
 from loader import load_iocs
 
+# --------------------------------------------------------------------
+# Minimal IOC type detector (fallback until a more robust parser exists)
+import re
+
+
+def detect_ioc_type(value: str) -> tuple[str, str]:
+    """
+    Return a tuple (ioc_type, normalized_value)
+    ioc_type in {"ip", "hash", "url", "domain", "filepath"}
+    """
+
+    # IPv4 address
+    if re.match(r"^\d{1,3}(?:\.\d{1,3}){3}$", value):
+        return "ip", value
+
+    # MD5 or SHA-256 hash (32 or 64 hex characters)
+    if re.match(r"^[A-Fa-f0-9]{32}$", value) or re.match(r"^[A-Fa-f0-9]{64}$", value):
+        return "hash", value.lower()
+
+    # URL – naïve check for protocol prefix
+    if value.startswith(("http://", "https://")):
+        return "url", value
+
+    # Domain – contains a dot and no whitespace
+    if "." in value and " " not in value:
+        return "domain", value.lower()
+
+    # Fallback: treat as file path/string
+    return "filepath", value
+
 # Ensure UTF-8 output on all platforms
 try:
-    sys.stdout.reconfigure(encoding='utf-8')
-    sys.stderr.reconfigure(encoding='utf-8')
+    sys.stdout.reconfigure(encoding='utf-8')  # type: ignore[attr-defined]
+    sys.stderr.reconfigure(encoding='utf-8')  # type: ignore[attr-defined]
 except AttributeError:
     # Python < 3.7 fallback
     pass
