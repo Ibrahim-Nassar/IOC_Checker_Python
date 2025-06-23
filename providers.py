@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List
+from typing import List, Any
 
 from provider_interface import IOCProvider
 
@@ -21,7 +21,7 @@ _abuseipdb = AbuseIPDBProvider()
 _otx = OTXProvider()
 
 #: Flat list of *all* provider instances (order significant for UI/tests)
-PROVIDERS: List[IOCProvider] = [
+PROVIDERS: List[Any] = [
     _threatfox,
     _abuseipdb,
     _otx,
@@ -30,14 +30,14 @@ PROVIDERS: List[IOCProvider] = [
 ]
 
 #: Providers with generous free-tier or no quota limitations.
-ALWAYS_ON: List[IOCProvider] = [
+ALWAYS_ON: List[Any] = [
     _threatfox,
     _abuseipdb,
     _otx,
 ]
 
 #: Providers that should be queried only when rate-limited mode is enabled.
-RATE_LIMIT: List[IOCProvider] = [
+RATE_LIMIT: List[Any] = [
     _virustotal,
     _greynoise,
 ]
