@@ -4,7 +4,7 @@ Unified provider protocol for IOC_Checker.
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable, Any, Dict
+from typing import Protocol, runtime_checkable, Any, Dict, ClassVar
 from dataclasses import dataclass
 
 
@@ -17,8 +17,8 @@ class IOCResult:
 
 @runtime_checkable
 class IOCProvider(Protocol):
-    NAME: str
-    TIMEOUT: int  # seconds
+    NAME: ClassVar[str]
+    TIMEOUT: ClassVar[int]  # seconds
 
     def query_ioc(self, ioc_type: str, ioc_value: str) -> IOCResult: ...
 
