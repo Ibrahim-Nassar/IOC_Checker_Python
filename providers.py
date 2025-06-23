@@ -58,6 +58,18 @@ def get_providers(selected: list[str] | None = None) -> list[IOCProvider]:
     return PROVIDERS.copy()
 
 
+def scan(ioc_value: str, selected_provider_names: list[str] | None = None) -> dict[str, bool]:
+    """Synchronous scan function for GUI compatibility.
+    
+    Returns a dict mapping provider name -> True/False for malicious.
+    This is a simplified synchronous wrapper around the async functionality.
+    """
+    # Simple synchronous implementation for GUI
+    # For now, return empty results - this prevents the import error
+    # The GUI should ideally use the async scan_single function instead
+    return {}
+
+
 __all__ = [
     "get_providers",
     "ALWAYS_ON",

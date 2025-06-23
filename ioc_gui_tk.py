@@ -948,7 +948,7 @@ class IOCCheckerGUI:
 
                 # Compose per-provider verdicts
                 from providers import PROVIDERS  # noqa: WPS433
-                from IOC_Checker_Python.quota import remaining as _quota_left
+                from quota import remaining as _quota_left
 
                 # Determine which providers were actually queried
                 selected_display = [info[1] for info in self.providers_info if self.provider_config.get(info[0], False)]
@@ -956,8 +956,8 @@ class IOCCheckerGUI:
                 provider_verdicts = []
                 for name in PROVIDERS:
                     if name in selected_display:
-                        verdict_text = "Malicious" if results.get(name) else "Clean"
-                        provider_verdicts.append(f"{verdict_text} ({_quota_left(name)} requests left)")
+                        verdict_text = "Malicious" if results.get(name.NAME) else "Clean"
+                        provider_verdicts.append(f"{verdict_text} ({_quota_left(name.NAME)} requests left)")
                     else:
                         provider_verdicts.append("Skipped")
 
@@ -1096,7 +1096,8 @@ class IOCCheckerGUI:
             # New style: first arg is the ready-to-use tuple
             values_tuple = tuple(args[0])
             row_id = (args[1] if len(args) > 1 else None) or kwargs.get("row_id")
-            status_text = str(values_tuple[2]).lower() if len(values_tuple) >= 3 else ""
+            status_text_raw = str(values_tuple[2]) if len(values_tuple) >= 3 else ""
+            status_text = status_text_raw.lower()
         else:
             # Legacy style – map to old parameters
             ioc_type, ioc_value, status, details, flagged_by = args[:5]
@@ -1104,6 +1105,7 @@ class IOCCheckerGUI:
             # Pad with per-provider blanks to match column count
             provider_blanks = tuple("" for _ in getattr(self, "provider_columns", ()))
             values_tuple = (ioc_type, ioc_value, status, flagged_by, *provider_blanks)
+            status_text_raw = status
             status_text = status.lower()
 
         # Ensure all_results exists
@@ -1126,6 +1128,25 @@ class IOCCheckerGUI:
         else:
             if _should_display():
                 self.out.insert("", "end", values=values_tuple)
+
+        # ------------------------------------------------------------------
+        # Map raw provider statuses to user-friendly text for the GUI.
+        # ------------------------------------------------------------------
+        _friendly = {
+            "success": "OK",
+            "missing_api_key": "No API key",
+            "quota_exceeded": "Quota",
+            "http_error": "HTTP error",
+        }
+
+        if len(values_tuple) >= 3:
+            friendly = _friendly.get(str(values_tuple[2]), str(values_tuple[2]))
+            if friendly != values_tuple[2]:
+                # replace status field while preserving tuple type/length
+                values_list = list(values_tuple)
+                values_list[2] = friendly
+                values_tuple = tuple(values_list)
+                status_text = friendly.lower()
 
     def _stop_processing(self):
         """Stop current processing."""
@@ -1257,7 +1278,7 @@ class IOCCheckerGUI:
         """Legacy alias – switches to light theme."""
         if hasattr(self, "_apply_theme"):
             try:
-                self._apply_theme("light")
+                self._apply_theme()
             except TypeError:
                 # Fallback: toggle flag and call
                 if hasattr(self, "dark_mode"):
@@ -1268,7 +1289,7 @@ class IOCCheckerGUI:
         """Legacy alias – switches to dark theme."""
         if hasattr(self, "_apply_theme"):
             try:
-                self._apply_theme("dark")
+                self._apply_theme()
             except TypeError:
                 if hasattr(self, "dark_mode"):
                     self.dark_mode.set(True)
