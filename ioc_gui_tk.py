@@ -936,7 +936,6 @@ class IOCCheckerGUI:
                 if set(selected) != all_names:
                     # Only some providers → pass explicit list
                     cmd += ["--providers", ",".join(selected)]
-                print("DEBUG CMD →", " ".join(cmd), flush=True)
                 
                 # Run subprocess
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
@@ -965,8 +964,16 @@ class IOCCheckerGUI:
                                 provider_name = parts[0].strip()
                                 status_info = parts[1].strip()
                                 
-                                # Extract the main status (first word)
-                                status = status_info.split()[0] if status_info.split() else "unknown"
+                                # Extract the main status
+                                if "ERROR – " in status_info:
+                                    # Extract status after "ERROR – "
+                                    error_part = status_info.split("ERROR – ")[1].strip()
+                                    status = error_part.split()[0] if error_part.split() else "error"
+                                elif status_info.startswith("ERROR"):
+                                    status = "error"
+                                else:
+                                    # Regular status (benign, malicious, etc.)
+                                    status = status_info.split()[0] if status_info.split() else "unknown"
                                 
                                 # Map status codes to friendly names
                                 _status_map = {
@@ -974,9 +981,13 @@ class IOCCheckerGUI:
                                     "invalid_api_key": "Bad key", 
                                     "quota_exceeded": "Quota!",
                                     "network_error": "Net error",
-                                    "error_401": "Auth error",
+                                    "timeout": "Timeout",
+                                    "http_404": "Not found",
+                                    "http_401": "Bad key",
+                                    "http_403": "Forbidden", 
+                                    "http_429": "Quota!",
                                     "error": "Error",
-                                    "ERROR": "Error",
+                                    "ERROR": "Error", 
                                     "benign": "Clean",
                                     "malicious": "Malicious"
                                 }
@@ -1170,37 +1181,46 @@ class IOCCheckerGUI:
         # Map raw provider statuses to user-friendly text for the GUI.
         # ------------------------------------------------------------------
         _STATUS_LABEL = {
-            "success":            "",            # handled via verdict text
-            "missing_api_key":    "No API key",
-            "invalid_api_key":    "Bad key",
-            "quota_exceeded":     "Quota!",
-            "network_error":      "Net err",
-            # Any http_4xx/5xx will be shown as e.g. "http_403"
+            "missing_api_key": "No API key",
+            "invalid_api_key": "Bad key",
+            "quota_exceeded":  "Quota!",
+            "network_error":   "Net err",
         }
         
         if len(values_tuple) >= 3:
             raw_status = str(values_tuple[2])
             
-            # Use enhanced verdict logic for result display
+            # Map status to user-friendly text
             if raw_status == "success":
-                # For success status, determine verdict based on score if available
-                score = getattr(args[0] if args else None, 'score', None) if hasattr(args[0] if args else None, 'score') else 0
-                verdict = (
-                    "malicious" if (score or 0) >= 50 else
-                    "benign" if (score or 0) < 5 else
-                    "unknown"
-                )
-                friendly_status = verdict.title()
+                # For success status, keep it as-is (will show as "Success")
+                friendly_status = "Success"
             else:
                 # Map error statuses to friendly names
-                friendly_status = _STATUS_LABEL.get(raw_status, f"ERR: {raw_status}")
+                friendly_status = _STATUS_LABEL.get(raw_status, raw_status)
             
+            # Update the values tuple with the friendly status
             if friendly_status != raw_status:
-                # replace status field while preserving tuple type/length
                 values_list = list(values_tuple)
                 values_list[2] = friendly_status
                 values_tuple = tuple(values_list)
                 status_text = friendly_status.lower()
+            
+            # Update the display with the modified values
+            if row_id and self.out.exists(row_id):
+                if _should_display():
+                    self.out.item(row_id, values=values_tuple)
+                else:
+                    self.out.delete(row_id)
+            else:
+                if _should_display():
+                    # Clear previous entry if it exists and insert the updated one
+                    children = self.out.get_children()
+                    if children:
+                        last_item = children[-1]
+                        current_values = self.out.item(last_item, "values")
+                        if len(current_values) >= 2 and current_values[1] == values_tuple[1]:
+                            self.out.delete(last_item)
+                    self.out.insert("", "end", values=values_tuple)
 
     def _stop_processing(self):
         """Stop current processing."""
@@ -1305,7 +1325,22 @@ class IOCCheckerGUI:
     # Simplified placeholder helpers (restored after refactor)
     # -------------------------------------------------------------------
     def _prompt_provider_selection_if_needed(self):
-        """Stubbed helper – always allow processing."""
+        """Check if any providers are selected, open provider selection if none are selected."""
+        # Check if any providers are enabled
+        selected_providers = [p for p in self.provider_config.values() if p]
+        
+        if not selected_providers:
+            # Directly open provider selection dialog
+            try:
+                self.show_providers_info()
+                # After dialog, check again if any providers were selected
+                selected_providers = [p for p in self.provider_config.values() if p]
+                if not selected_providers:
+                    return False
+            except Exception as e:
+                log.error(f"Error opening provider selection dialog: {e}")
+                return False
+        
         return True
 
     def _on_toggle_filter(self):

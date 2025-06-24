@@ -165,12 +165,12 @@ async def scan_single(ioc_value: str, rate: bool, selected_names: list[str] | No
     if ioc_type == "unknown":
         return {"value": ioc_value, "type": "unknown", "results": {}}
 
-    # If specific providers are requested, honor that selection regardless of rate limits
+    # If specific providers are requested, honor that selection
     if selected_names:
         active = get_providers(selected_names)
     else:
-        # Otherwise use the standard rate-limit logic
-        active = list(ALWAYS_ON) + (list(RATE_LIMIT) if rate else [])
+        # Use always-on providers by default
+        active = list(ALWAYS_ON)
 
     results = await _query(ioc_type, normalized, active)
     return {"value": normalized, "type": ioc_type, "results": results}
@@ -185,7 +185,7 @@ def main() -> None:
     ap.add_argument("value", nargs="?", help="IOC value for single lookup")
     ap.add_argument("--file", help="Input file path (CSV, TSV, XLSX, TXT)")
     ap.add_argument("-o", "--out", default="results.csv", help="Output filename")
-    ap.add_argument("--rate", action="store_true", help="Include rate-limited providers")
+
     ap.add_argument("--providers", help="Comma-separated list of providers to use (by NAME)")
 
     args = ap.parse_args()
@@ -195,10 +195,8 @@ def main() -> None:
     if args.value:
         # Single lookup mode
         async def _run():
-            # Instrumentation: show which provider objects will be consulted
             _sel_objs = get_providers(selected)
-            print("DEBUG selected providers:", [p.NAME for p in _sel_objs], "raw arg:", args.providers, flush=True)
-            res = await scan_single(args.value, args.rate, selected)
+            res = await scan_single(args.value, False, selected)
 
             print(f"\nIOC  : {res['value']}  ({res['type']})")
             print("-" * 60)
@@ -213,7 +211,7 @@ def main() -> None:
         return
 
     if args.file:
-        asyncio.run(process_file(args.file, args.out, args.rate, selected))
+        asyncio.run(process_file(args.file, args.out, False, selected))
         return
 
     ap.error("Provide either (value) or --file")

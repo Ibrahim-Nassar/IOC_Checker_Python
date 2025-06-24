@@ -56,10 +56,7 @@ class AbuseIPDBProvider:
             
             data: Dict[str, Any] = resp.json().get("data", {})
             confidence = float(data.get("abuseConfidenceScore", 0))
-            reports = int(data.get("totalReports", 0))
-            malicious = confidence >= 50 and reports >= 10
-            status = "malicious" if malicious else "success"
-            return IOCResult(status=status, score=confidence, raw=data)
+            return IOCResult(status="success", score=confidence, raw=data)
             
         except requests.exceptions.RequestException as exc:
             return IOCResult(status="network_error", score=None, raw={"error": str(exc)})

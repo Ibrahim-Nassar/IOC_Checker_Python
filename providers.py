@@ -7,40 +7,48 @@ from typing import List, Any
 from provider_interface import IOCProvider
 
 # Concrete providers (import order does not matter)
-from greynoise_api import GreyNoiseProvider
-from threatfox_api import ThreatFoxProvider
-from virustotal_api import VirusTotalProvider
-from abuseipdb_api import AbuseIPDBProvider
-from otx_api import OTXProvider
-
-# Instantiate each provider once
-_greynoise = GreyNoiseProvider()
-_threatfox = ThreatFoxProvider()
-_virustotal = VirusTotalProvider()
-_abuseipdb = AbuseIPDBProvider()
-_otx = OTXProvider()
+try:
+    from greynoise_api import GreyNoiseProvider
+    from threatfox_api import ThreatFoxProvider
+    from otx_api import OTXProvider
+    from virustotal_api import VirusTotalProvider
+    from abuseipdb_api import AbuseIPDBProvider
+    
+    _greynoise = GreyNoiseProvider()
+    _threatfox = ThreatFoxProvider()
+    _otx = OTXProvider()
+    _virustotal = VirusTotalProvider()
+    _abuseipdb = AbuseIPDBProvider()
+    
+except ImportError as e:
+    print(f"Error: Failed to import providers: {e}")
+    _greynoise = None
+    _threatfox = None
+    _otx = None
+    _virustotal = None
+    _abuseipdb = None
 
 #: Flat list of *all* provider instances (order significant for UI/tests)
-PROVIDERS: List[Any] = [
+PROVIDERS: List[Any] = [p for p in [
     _threatfox,
     _abuseipdb,
     _otx,
     _virustotal,
     _greynoise,
-]
+] if p is not None]
 
 #: Providers with generous free-tier or no quota limitations.
-ALWAYS_ON: List[Any] = [
+ALWAYS_ON: List[Any] = [p for p in [
     _threatfox,
     _abuseipdb,
     _otx,
-]
+] if p is not None]
 
 #: Providers that should be queried only when rate-limited mode is enabled.
-RATE_LIMIT: List[Any] = [
+RATE_LIMIT: List[Any] = [p for p in [
     _virustotal,
     _greynoise,
-]
+] if p is not None]
 
 
 def get_providers(selected: list[str] | None = None) -> list[IOCProvider]:

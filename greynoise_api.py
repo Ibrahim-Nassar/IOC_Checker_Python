@@ -51,11 +51,8 @@ class GreyNoiseProvider:
             
             data: Dict[str, Any] = resp.json()
             classification = str(data.get("classification", "")).lower()
-            malicious = classification == "malicious"
-            if malicious:
-                return IOCResult(status="malicious", score=100.0, raw=data)
-            else:
-                return IOCResult(status="success", score=0.0, raw=data)
+            score = 100.0 if classification == "malicious" else 0.0
+            return IOCResult(status="success", score=score, raw=data)
                 
         except requests.exceptions.RequestException as exc:
             return IOCResult(status="network_error", score=None, raw={"error": str(exc)})
