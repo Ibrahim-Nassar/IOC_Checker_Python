@@ -36,21 +36,33 @@ class AbuseIPDBProvider:
         params = dict(_PARAMS_DEFAULT, ipAddress=ioc_value)
         try:
             resp = requests.get(_API, headers=_HEADERS, params=params, timeout=self.TIMEOUT)
+            
+            if resp.status_code == 401:
+                return IOCResult(status="invalid_api_key", score=None, raw={"status_code": 401})
+            
+            if resp.status_code == 429:
+                return IOCResult(status="quota_exceeded", score=None, raw={"status_code": 429})
+            
             if resp.status_code == 404:
                 # Not found in DB implies clean
-                return IOCResult(status="clean", score=0.0, raw={"status_code": 404})
+                return IOCResult(status="success", score=0.0, raw={"status_code": 404})
+            
             if resp.status_code != 200:
                 return IOCResult(
-                    status=f"error_{resp.status_code}",
+                    status=f"http_{resp.status_code}",
                     score=None,
                     raw={"status_code": resp.status_code, "text": resp.text},
                 )
+            
             data: Dict[str, Any] = resp.json().get("data", {})
             confidence = float(data.get("abuseConfidenceScore", 0))
             reports = int(data.get("totalReports", 0))
             malicious = confidence >= 50 and reports >= 10
-            status = "malicious" if malicious else "clean"
+            status = "malicious" if malicious else "success"
             return IOCResult(status=status, score=confidence, raw=data)
+            
+        except requests.exceptions.RequestException as exc:
+            return IOCResult(status="network_error", score=None, raw={"error": str(exc)})
         except Exception as exc:
             return IOCResult(status="error", score=None, raw={"error": str(exc)})
 

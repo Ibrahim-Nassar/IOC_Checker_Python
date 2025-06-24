@@ -25,21 +25,36 @@ class ThreatFoxProvider:
 
     def query_ioc(self, ioc_type: str, ioc_value: str) -> IOCResult:  # type: ignore[override]
         """Query ThreatFox for the given IOC value and return an IOCResult."""
+        if not _KEY:
+            return IOCResult(status="missing_api_key", score=None, raw={})
+
         body = dict(_PAYLOAD_BASE, search_term=ioc_value)
         try:
             resp = requests.post(_API, headers=_HDRS, data=body, timeout=self.TIMEOUT)
-            if not resp.ok:
+            
+            if resp.status_code == 401 or resp.status_code == 403:
+                return IOCResult(status="invalid_api_key", score=None, raw={"status_code": resp.status_code})
+            
+            if resp.status_code == 429:
+                return IOCResult(status="quota_exceeded", score=None, raw={"status_code": resp.status_code})
+            
+            if resp.status_code != 200:
                 return IOCResult(
-                    status=f"error_{resp.status_code}",
+                    status=f"http_{resp.status_code}",
                     score=None,
                     raw={"status_code": resp.status_code, "text": resp.text},
                 )
+            
             data: Dict[str, Any] = resp.json()
             malicious = bool(data.get("data"))
-            status = "malicious" if malicious else "clean"
-            score = 100.0 if malicious else 0.0
-            return IOCResult(status=status, score=score, raw=data)
-        except Exception as exc:  # pragma: no cover – network/parsing errors are non-fatal
+            if malicious:
+                return IOCResult(status="malicious", score=100.0, raw=data)
+            else:
+                return IOCResult(status="success", score=0.0, raw=data)
+                
+        except requests.exceptions.RequestException as exc:
+            return IOCResult(status="network_error", score=None, raw={"error": str(exc)})
+        except Exception as exc:  # pragma: no cover – parsing errors are non-fatal
             return IOCResult(status="error", score=None, raw={"error": str(exc)})
 
 

@@ -29,22 +29,37 @@ class GreyNoiseProvider:
             # GreyNoise only supports IP addresses
             return IOCResult(status="unsupported", score=None, raw={})
 
+        if not _KEY:
+            return IOCResult(status="missing_api_key", score=None, raw={})
+
         headers = dict(_HDRS)  # copy to avoid accidental mutation
         try:
             resp = requests.get(f"{_API}{ioc_value}", headers=headers, timeout=self.TIMEOUT)
+            
+            if resp.status_code == 401:
+                return IOCResult(status="invalid_api_key", score=None, raw={"status_code": 401})
+            
+            if resp.status_code == 429:
+                return IOCResult(status="quota_exceeded", score=None, raw={"status_code": 429})
+            
             if resp.status_code != 200:
                 return IOCResult(
-                    status=f"error_{resp.status_code}",
+                    status=f"http_{resp.status_code}",
                     score=None,
                     raw={"status_code": resp.status_code, "text": resp.text},
                 )
+            
             data: Dict[str, Any] = resp.json()
             classification = str(data.get("classification", "")).lower()
             malicious = classification == "malicious"
-            status = "malicious" if malicious else "clean"
-            score = 100.0 if malicious else 0.0
-            return IOCResult(status=status, score=score, raw=data)
-        except Exception as exc:  # pragma: no cover – network/JSON errors are non-fatal
+            if malicious:
+                return IOCResult(status="malicious", score=100.0, raw=data)
+            else:
+                return IOCResult(status="success", score=0.0, raw=data)
+                
+        except requests.exceptions.RequestException as exc:
+            return IOCResult(status="network_error", score=None, raw={"error": str(exc)})
+        except Exception as exc:  # pragma: no cover – JSON parsing errors are non-fatal
             return IOCResult(status="error", score=None, raw={"error": str(exc)})
 
 

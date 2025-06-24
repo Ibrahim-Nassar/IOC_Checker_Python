@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import requests
 from typing import Any, Dict
 
 from cache import session as requests
@@ -26,39 +27,43 @@ _IOT_TYPE_MAP = {
 class OTXProvider:
     """OTX implementation conforming to IOCProvider."""
 
-    NAME = "OTX AlienVault"
-    TIMEOUT = 6  # seconds
+    NAME = "OTX"
+    TIMEOUT = 30  # seconds
 
-    def query_ioc(self, ioc_type: str, ioc_value: str) -> IOCResult:  # type: ignore[override]
-        """Query AlienVault OTX and translate response into IOCResult."""
-        segment = _IOT_TYPE_MAP.get(ioc_type.lower())
-        if not segment:
-            return IOCResult(status="unsupported", score=None, raw={})
+    def __init__(self) -> None:
+        self.API_KEY: str | None = os.getenv("OTX_API_KEY")
 
-        url = f"{_API_BASE}/{segment}/{ioc_value}"
+    def query_ioc(self, ioc_type: str, ioc_value: str) -> IOCResult:
+        if not self.API_KEY:
+            return IOCResult(status="missing_api_key", score=None, raw={})
+
+        url = f"https://otx.alienvault.com/api/v1/indicators/{ioc_type}/{ioc_value}"
+        headers = {"X-OTX-API-KEY": self.API_KEY}
+
         try:
-            resp = requests.get(url, headers=_HEADERS, timeout=self.TIMEOUT)
-            if resp.status_code == 404:
-                # indicator unknown
-                return IOCResult(status="clean", score=0.0, raw={"status_code": 404})
-            if resp.status_code != 200:
-                return IOCResult(
-                    status=f"error_{resp.status_code}",
-                    score=None,
-                    raw={"status_code": resp.status_code, "text": resp.text},
-                )
-            data: Dict[str, Any] = resp.json()
-            pulses = data.get("pulse_info", {}).get("count", 0)
-            malicious = pulses > 0
-            status = "malicious" if malicious else "clean"
-            score = min(100.0, pulses * 10.0) if malicious else 0.0
-            return IOCResult(status=status, score=score, raw=data)
-        except Exception as exc:
-            return IOCResult(status="error", score=None, raw={"error": str(exc)})
+            r = requests.get(url, headers=headers, timeout=self.TIMEOUT)
+        except requests.exceptions.RequestException as exc:
+            return IOCResult(status="network_error", score=None, raw={"error": str(exc)})
 
+        if r.status_code == 200:
+            data: Dict[str, Any] = r.json()
+            score = float(data.get("pulse_info", {}).get("count", 0))
+            return IOCResult(status="success", score=score, raw=data)
+
+        if r.status_code == 401:
+            return IOCResult(status="invalid_api_key", score=None, raw=r.json())
+
+        if r.status_code == 429:
+            return IOCResult(status="quota_exceeded", score=None, raw=r.json())
+
+        return IOCResult(status=f"http_{r.status_code}", score=None, raw={"text": r.text})
+
+
+def get_provider():
+    return OTXProvider()
 
 # Module-level provider instance
-provider: IOCProvider = OTXProvider()
+provider: IOCProvider = get_provider()
 
 # --- AUTOGEN START
 # (Cursor will fill in)

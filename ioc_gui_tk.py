@@ -1169,21 +1169,38 @@ class IOCCheckerGUI:
         # ------------------------------------------------------------------
         # Map raw provider statuses to user-friendly text for the GUI.
         # ------------------------------------------------------------------
-        _friendly = {
-            "success": "OK",
-            "missing_api_key": "No API key",
-            "quota_exceeded": "Quota",
-            "http_error": "HTTP error",
+        _STATUS_LABEL = {
+            "success":            "",            # handled via verdict text
+            "missing_api_key":    "No API key",
+            "invalid_api_key":    "Bad key",
+            "quota_exceeded":     "Quota!",
+            "network_error":      "Net err",
+            # Any http_4xx/5xx will be shown as e.g. "http_403"
         }
-
+        
         if len(values_tuple) >= 3:
-            friendly = _friendly.get(str(values_tuple[2]), str(values_tuple[2]))
-            if friendly != values_tuple[2]:
+            raw_status = str(values_tuple[2])
+            
+            # Use enhanced verdict logic for result display
+            if raw_status == "success":
+                # For success status, determine verdict based on score if available
+                score = getattr(args[0] if args else None, 'score', None) if hasattr(args[0] if args else None, 'score') else 0
+                verdict = (
+                    "malicious" if (score or 0) >= 50 else
+                    "benign" if (score or 0) < 5 else
+                    "unknown"
+                )
+                friendly_status = verdict.title()
+            else:
+                # Map error statuses to friendly names
+                friendly_status = _STATUS_LABEL.get(raw_status, f"ERR: {raw_status}")
+            
+            if friendly_status != raw_status:
                 # replace status field while preserving tuple type/length
                 values_list = list(values_tuple)
-                values_list[2] = friendly
+                values_list[2] = friendly_status
                 values_tuple = tuple(values_list)
-                status_text = friendly.lower()
+                status_text = friendly_status.lower()
 
     def _stop_processing(self):
         """Stop current processing."""

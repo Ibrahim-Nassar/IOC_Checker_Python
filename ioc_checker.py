@@ -269,11 +269,11 @@ def _flagged_by(provider_results: Dict[str, Dict[str, Any]]) -> str:
 
 def _print_result(provider_name: str, res: "IOCResult") -> None:
     """Always display provider outcome, even if status != 'success'."""
-
-    if res.status == "success":
+    status = res.status
+    if status in ("success", "clean"):          # ← accept legacy 'clean'
         verdict = (
             "malicious" if (res.score or 0) >= 50 else
-            "benign" if (res.score or 0) < 5 else
+            "benign"    if (res.score or 0) < 5 else
             "unknown"
         )
         print(f"{provider_name:<15}: {verdict:<8} score={res.score}", flush=True)
