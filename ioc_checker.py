@@ -34,34 +34,13 @@ from reports   import WRITERS, write_csv
 from loader import load_iocs
 
 # --------------------------------------------------------------------
-# Minimal IOC type detector (fallback until a more robust parser exists)
-import re
+# IOC type detection
+from ioc_types import detect_ioc_type as _detect_ioc_type
 
 
 def detect_ioc_type(value: str) -> tuple[str, str]:
-    """
-    Return a tuple (ioc_type, normalized_value)
-    ioc_type in {"ip", "hash", "url", "domain", "filepath"}
-    """
-
-    # IPv4 address
-    if re.match(r"^\d{1,3}(?:\.\d{1,3}){3}$", value):
-        return "ip", value
-
-    # MD5 or SHA-256 hash (32 or 64 hex characters)
-    if re.match(r"^[A-Fa-f0-9]{32}$", value) or re.match(r"^[A-Fa-f0-9]{64}$", value):
-        return "hash", value.lower()
-
-    # URL – naïve check for protocol prefix
-    if value.startswith(("http://", "https://")):
-        return "url", value
-
-    # Domain – contains a dot and no whitespace
-    if "." in value and " " not in value:
-        return "domain", value.lower()
-
-    # Fallback: treat as file path/string
-    return "filepath", value
+    """Delegate to :func:`ioc_types.detect_ioc_type`."""
+    return _detect_ioc_type(value)
 
 # Ensure UTF-8 output on all platforms
 try:
