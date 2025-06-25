@@ -13,12 +13,10 @@ import re
 import logging
 import asyncio
 import threading
-import json
 from pathlib import Path
 from loader import load_iocs
+from settings_manager import load_settings, save_settings
 # Cache helper (for Clear cache menu action)
-import sys
-import os
 from dotenv import load_dotenv
 import tkinter.messagebox as messagebox  # Ensure messagebox module alias is available
 
@@ -41,7 +39,6 @@ from tkinter import messagebox as tb_messagebox
 TTK_AVAILABLE = True
 
 # --- auto-load API keys -------------------------
-import os
 from api_key_store import load as _load_key
 
 for _env in (
@@ -191,50 +188,12 @@ class IOCCheckerGUI:
             raise
 
     def _load_settings(self):
-        """Load user settings from the JSON file."""
-        if not self.settings_file.exists():
-            # Create default settings if file doesn't exist
-            default_settings = {
-                "provider_config": {
-                    "virustotal": False,
-                    "abuseipdb": False,
-                    "otx": False,
-                    "threatfox": False,
-                    "greynoise": False,
-                },
-                "show_threats_only": False,
-                "dark_mode": False
-            }
-            self._save_settings(default_settings)
-            return default_settings
-        
-        try:
-            with open(self.settings_file, 'r') as f:
-                settings = json.load(f)
-                log.info(f"Loaded settings: {settings}")
-                return settings
-        except Exception as e:
-            log.error(f"Failed to load settings: {e}, using defaults")
-            return {
-                "provider_config": {
-                    "virustotal": False,
-                    "abuseipdb": False,
-                    "otx": False,
-                    "threatfox": False,
-                    "greynoise": False,
-                },
-                "show_threats_only": False,
-                "dark_mode": False
-            }
+        """Load user settings from disk."""
+        return load_settings(self.settings_file)
 
     def _save_settings(self, settings):
-        """Save user settings to the JSON file."""
-        try:
-            with open(self.settings_file, 'w') as f:
-                json.dump(settings, f, indent=4)
-                log.info(f"Saved settings: {settings}")
-        except Exception as e:
-            log.error(f"Failed to save settings: {e}")
+        """Persist user settings to disk."""
+        save_settings(self.settings_file, settings)
 
     def _apply_theme(self):
         """Apply the current theme setting."""
