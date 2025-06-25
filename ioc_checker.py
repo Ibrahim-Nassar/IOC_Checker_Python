@@ -5,16 +5,23 @@ Async IOC checker leveraging the unified provider interface.
 • Clean console summaries  • Robust CSV parsing
 • Cross-platform UTF-8 output
 """
+
 from __future__ import annotations
+
 import argparse
 import asyncio
 import logging
-import pathlib
-import sys
-from typing import Dict, Any, List
-# --- auto-load API keys -------------------------
 import os
+import pathlib
+import re
+import sys
+from typing import Any, Dict, List
+
 from api_key_store import load as _load_key
+from loader import load_iocs
+from provider_interface import IOCResult, IOCProvider
+from providers import ALWAYS_ON, get_providers
+from reports import write_csv
 
 for _env in (
     "VT_API_KEY",
@@ -28,14 +35,9 @@ for _env in (
         if _val:
             os.environ[_env] = _val
 # ------------------------------------------------
-from provider_interface import IOCResult, IOCProvider
-from providers import get_providers, ALWAYS_ON, RATE_LIMIT
-from reports   import WRITERS, write_csv
-from loader import load_iocs
 
 # --------------------------------------------------------------------
 # Minimal IOC type detector (fallback until a more robust parser exists)
-import re
 
 
 def detect_ioc_type(value: str) -> tuple[str, str]:
@@ -63,21 +65,22 @@ def detect_ioc_type(value: str) -> tuple[str, str]:
     # Fallback: treat as file path/string
     return "filepath", value
 
+
 # Ensure UTF-8 output on all platforms
 try:
-    sys.stdout.reconfigure(encoding='utf-8')  # type: ignore[attr-defined]
-    sys.stderr.reconfigure(encoding='utf-8')  # type: ignore[attr-defined]
+    sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+    sys.stderr.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
 except AttributeError:
     # Python < 3.7 fallback
     pass
 
-logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s %(levelname)s %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("ioc_checker")
 
 ###############################################################################
 # Helper formatting functions                                                 #
 ###############################################################################
+
 
 def _fmt_raw(data: Dict[str, Any] | None) -> str:
     """Format raw provider JSON for concise console display."""
@@ -112,7 +115,7 @@ def _fmt_raw(data: Dict[str, Any] | None) -> str:
     if "pulse_info" in str(data):
         try:
             count = data["pulse_info"].get("count", 0)
-            return "Clean" if count == 0 else f"Malicious – {count} OTX pulse{'s' if count!=1 else ''}"
+            return "Clean" if count == 0 else f"Malicious – {count} OTX pulse{'s' if count != 1 else ''}"
         except Exception:
             return "Parse error"
 
@@ -124,9 +127,11 @@ def _fmt_raw(data: Dict[str, Any] | None) -> str:
 
     return "Unknown"
 
+
 ###############################################################################
 # Provider orchestration                                                      #
 ###############################################################################
+
 
 async def _query(
     ioc_type: str,
@@ -156,9 +161,11 @@ async def _query(
     pairs = await asyncio.gather(*tasks)
     return {name: data for name, data in pairs}
 
+
 ###############################################################################
 # High-level scanning helpers                                                 #
 ###############################################################################
+
 
 async def scan_single(ioc_value: str, rate: bool, selected_names: list[str] | None = None):
     ioc_type, normalized = detect_ioc_type(ioc_value)
@@ -175,9 +182,11 @@ async def scan_single(ioc_value: str, rate: bool, selected_names: list[str] | No
     results = await _query(ioc_type, normalized, active)
     return {"value": normalized, "type": ioc_type, "results": results}
 
+
 ###############################################################################
 # CLI entry-point                                                           #
 ###############################################################################
+
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="IOC checker with async providers")
@@ -207,6 +216,7 @@ def main() -> None:
                 _print_result(prov_obj.NAME, IOCResult(**pdata))
 
             print()
+
         asyncio.run(_run())
         return
 
@@ -216,9 +226,11 @@ def main() -> None:
 
     ap.error("Provide either (value) or --file")
 
+
 ###############################################################################
 # Batch-file processing (simplified, retains CSV export)                      #
 ###############################################################################
+
 
 async def process_file(path: str, out: str, rate: bool, selected: list[str] | None):
     inpath, outpath = pathlib.Path(path), pathlib.Path(out)
@@ -243,40 +255,42 @@ async def process_file(path: str, out: str, rate: bool, selected: list[str] | No
 
     # Minimal CSV export
     flat_rows = [
-        {"ioc": r["value"], "verdict": _aggregate_verdict(r["results"]), "flagged_by": _flagged_by(r["results"]) }
+        {"ioc": r["value"], "verdict": _aggregate_verdict(r["results"]), "flagged_by": _flagged_by(r["results"])}
         for r in results
     ]
     write_csv(outpath, flat_rows)
     print(f"Report written to {outpath}")
 
+
 ###############################################################################
 # Verdict helpers                                                             #
 ###############################################################################
+
 
 def _aggregate_verdict(provider_results: Dict[str, Dict[str, Any]]) -> str:
     flagged = sum(1 for r in provider_results.values() if r["status"] == "malicious")
     return "malicious" if flagged >= 2 else "clean"
 
+
 def _flagged_by(provider_results: Dict[str, Dict[str, Any]]) -> str:
     names = [name for name, r in provider_results.items() if r["status"] == "malicious"]
     return ",".join(names)
+
 
 ###############################################################################
 # Console output helpers                                                     #
 ###############################################################################
 
+
 def _print_result(provider_name: str, res: "IOCResult") -> None:
     """Always display provider outcome, even if status != 'success'."""
     status = res.status
-    if status in ("success", "clean"):          # ← accept legacy 'clean'
-        verdict = (
-            "malicious" if (res.score or 0) >= 50 else
-            "benign"    if (res.score or 0) < 5 else
-            "unknown"
-        )
+    if status in ("success", "clean"):  # ← accept legacy 'clean'
+        verdict = "malicious" if (res.score or 0) >= 50 else "benign" if (res.score or 0) < 5 else "unknown"
         print(f"{provider_name:<15}: {verdict:<8} score={res.score}", flush=True)
     else:
         print(f"{provider_name:<15}: ERROR – {res.status}", flush=True)
+
 
 ###############################################################################
 # Script entry-point                                                          #
@@ -285,7 +299,10 @@ def _print_result(provider_name: str, res: "IOCResult") -> None:
 if __name__ == "__main__":
     main()
 
-async def batch_check_indicators(ioc_values: list[str], rate: bool = False, selected_providers: list[str] | None = None):
+
+async def batch_check_indicators(
+    ioc_values: list[str], rate: bool = False, selected_providers: list[str] | None = None
+):
     """Batch check multiple IOCs - GUI compatibility function."""
     results = []
     for ioc_value in ioc_values:
@@ -294,10 +311,10 @@ async def batch_check_indicators(ioc_values: list[str], rate: bool = False, sele
             results.append(res)
         except Exception as exc:
             log.warning("Failed processing %s: %s", ioc_value, exc)
-    
+
     # Export to CSV for GUI
     flat_rows = [
-        {"ioc": r["value"], "verdict": _aggregate_verdict(r["results"]), "flagged_by": _flagged_by(r["results"]) }
+        {"ioc": r["value"], "verdict": _aggregate_verdict(r["results"]), "flagged_by": _flagged_by(r["results"])}
         for r in results
     ]
     write_csv(pathlib.Path("results.csv"), flat_rows)

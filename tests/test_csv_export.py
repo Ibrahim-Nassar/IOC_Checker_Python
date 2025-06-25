@@ -1,11 +1,11 @@
-import csv, pathlib, os
+import csv
 from reports import write_csv
 
 
 def test_write_csv(tmp_path):
     rows = [
         {"ioc": "1.1.1.1", "verdict": "malicious", "flagged_by": "DummyTrue"},
-        {"ioc": "good.com", "verdict": "clean",     "flagged_by": ""},
+        {"ioc": "good.com", "verdict": "clean", "flagged_by": ""},
     ]
     out_path = tmp_path / "results.csv"
     write_csv(out_path, rows)
@@ -17,4 +17,4 @@ def test_write_csv(tmp_path):
     header = data[0]
     assert header == ["ioc", "verdict", "flagged_by"]
     # No blank lines (Windows \r\n edge-case)
-    assert len(data) == len(rows) + 1 
+    assert len(data) == len(rows) + 1
