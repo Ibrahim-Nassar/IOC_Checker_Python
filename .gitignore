@@ -185,3 +185,4 @@ pycache/
 # ────────── project-specific cache / build ──────────
 *.sqlite
 dist/
+results.csv
