@@ -25,7 +25,3 @@ def test_dummy_provider_is_instance():
     dummy = DummyProvider()
     assert isinstance(dummy, IOCProvider)
 
-
-# --- AUTOGEN START
-# (Cursor will fill in)
-# --- AUTOGEN END 

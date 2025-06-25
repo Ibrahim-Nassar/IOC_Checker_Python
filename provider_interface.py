@@ -21,7 +21,3 @@ class IOCProvider(Protocol):
     TIMEOUT: ClassVar[int]  # seconds
 
     def query_ioc(self, ioc_type: str, ioc_value: str) -> IOCResult: ...
-
-# --- AUTOGEN START
-# (Cursor will fill in)
-# --- AUTOGEN END 
