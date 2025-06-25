@@ -9,11 +9,9 @@ def test_scan_minimal(monkeypatch):
     monkeypatch.setitem(providers.PROVIDERS, "DummyFalse", lambda i: False)
 
     res = providers.scan("1.1.1.1")
-    assert res["DummyTrue"]  is True
+    assert res["DummyTrue"] is True
     assert res["DummyFalse"] is False
-    # Built-in providers must still appear
-    for prov in ("VirusTotal", "AbuseIPDB"):
-        assert prov in res
+    assert set(res.keys()) == {"DummyTrue", "DummyFalse"}
 
 
 def test_scan_partial_failure(monkeypatch):
