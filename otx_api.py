@@ -65,7 +65,4 @@ def get_provider():
 # Module-level provider instance
 provider: IOCProvider = get_provider()
 
-# --- AUTOGEN START
-# (Cursor will fill in)
-# --- AUTOGEN END 
 

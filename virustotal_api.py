@@ -71,7 +71,3 @@ class VirusTotalProvider:
 def get_provider() -> VirusTotalProvider:  # noqa: D401
     """Return a fresh provider instance (simple factory)."""
     return VirusTotalProvider()
-
-# --- AUTOGEN START
-# (Cursor will fill in)
-# --- AUTOGEN END 

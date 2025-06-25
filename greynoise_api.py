@@ -62,7 +62,3 @@ class GreyNoiseProvider:
 
 # Provide a module-level instance for convenient import elsewhere
 provider: IOCProvider = GreyNoiseProvider()
-
-# --- AUTOGEN START
-# (Cursor will fill in)
-# --- AUTOGEN END
