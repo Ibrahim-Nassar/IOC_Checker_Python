@@ -58,7 +58,3 @@ class ThreatFoxProvider:
 
 # Module-level provider instance for easy registration
 provider: IOCProvider = ThreatFoxProvider()
-
-# --- AUTOGEN START
-# (Cursor will fill in)
-# --- AUTOGEN END 

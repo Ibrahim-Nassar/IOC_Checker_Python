@@ -66,7 +66,3 @@ class AbuseIPDBProvider:
 
 # Module-level provider instance
 provider: IOCProvider = AbuseIPDBProvider()
-
-# --- AUTOGEN START
-# (Cursor will fill in)
-# --- AUTOGEN END 
