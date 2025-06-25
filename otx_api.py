@@ -1,68 +1,81 @@
-"""AlienVault OTX provider adapter implementing the unified IOCProvider protocol."""
-
+"""
+AlienVault OTX provider adapter for the IOC Checker project.
+"""
 from __future__ import annotations
 
 import os
 import requests
-from typing import Any, Dict
+from typing import Literal
 
-from cache import session as requests
-from provider_interface import IOCResult, IOCProvider
-
-_API_BASE = "https://otx.alienvault.com/api/v1/indicators"
-_KEY = os.getenv("ALIENVAULT_OTX_API_KEY", "")
-_HEADERS: Dict[str, str] = {"Accept": "application/json"}
-if _KEY:
-    _HEADERS["X-OTX-API-KEY"] = _KEY
-
-# Mapping IOC kinds used in this project to OTX endpoint segments.
-_IOT_TYPE_MAP = {
-    "ip": "IPv4",
-    "domain": "domain",
-    "url": "url",
-    "hash": "file",  # md5/sha1/sha256 handled under 'file'
-}
+from ioc_types import IOCStatus, IOCResult
 
 
 class OTXProvider:
-    """OTX implementation conforming to IOCProvider."""
-
-    NAME = "OTX"
-    TIMEOUT = 30  # seconds
-
-    def __init__(self) -> None:
-        self.API_KEY: str | None = os.getenv("OTX_API_KEY")
-
-    def query_ioc(self, ioc_type: str, ioc_value: str) -> IOCResult:
-        if not self.API_KEY:
-            return IOCResult(status="missing_api_key", score=None, raw={})
-
-        url = f"https://otx.alienvault.com/api/v1/indicators/{ioc_type}/{ioc_value}"
-        headers = {"X-OTX-API-KEY": self.API_KEY}
-
+    
+    NAME = "otx"
+    
+    def __init__(self, api_key: str | None = None) -> None:
+        if api_key is None:
+            api_key = os.getenv("OTX_API_KEY") or os.getenv("ALIENVAULT_OTX_API_KEY")
+        
+        if not api_key:
+            raise RuntimeError("OTX API key not found in environment variables")
+        
+        self.api_key = api_key
+    
+    def query_ioc(self, ioc: str, ioc_type: Literal["ip", "domain", "url", "hash"]) -> IOCResult:
+        if ioc_type == "url":
+            return IOCResult(
+                ioc=ioc,
+                ioc_type=ioc_type,
+                status=IOCStatus.UNSUPPORTED,
+                message="URL scanning not supported by this provider"
+            )
+        
+        endpoint_map = {
+            "ip": f"IPv4/{ioc}/general",
+            "domain": f"domain/{ioc}/general",
+            "hash": f"file/{ioc}/general"
+        }
+        
+        url = f"https://otx.alienvault.com/api/v1/indicators/{endpoint_map[ioc_type]}"
+        headers = {"X-OTX-API-KEY": self.api_key}
+        
         try:
-            r = requests.get(url, headers=headers, timeout=self.TIMEOUT)
-        except requests.exceptions.RequestException as exc:
-            return IOCResult(status="network_error", score=None, raw={"error": str(exc)})
+            response = requests.get(url, headers=headers, timeout=5)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            pulses = data.get("pulse_info", {}).get("pulses", [])
+            pulse_count = len(pulses)
+            
+            status = IOCStatus.MALICIOUS if pulse_count > 0 else IOCStatus.SUCCESS
+            
+            return IOCResult(
+                ioc=ioc,
+                ioc_type=ioc_type,
+                status=status,
+                malicious_engines=pulse_count,
+                total_engines=pulse_count
+            )
+            
+        except requests.exceptions.RequestException as e:
+            return IOCResult(
+                ioc=ioc,
+                ioc_type=ioc_type,
+                status=IOCStatus.ERROR,
+                message=f"Request failed: {str(e)}"
+            )
+        except (KeyError, ValueError) as e:
+            return IOCResult(
+                ioc=ioc,
+                ioc_type=ioc_type,
+                status=IOCStatus.ERROR,
+                message=f"Failed to parse response: {str(e)}"
+            )
 
-        if r.status_code == 200:
-            data: Dict[str, Any] = r.json()
-            score = float(data.get("pulse_info", {}).get("count", 0))
-            return IOCResult(status="success", score=score, raw=data)
 
-        if r.status_code == 401:
-            return IOCResult(status="invalid_api_key", score=None, raw=r.json())
-
-        if r.status_code == 429:
-            return IOCResult(status="quota_exceeded", score=None, raw=r.json())
-
-        return IOCResult(status=f"http_{r.status_code}", score=None, raw={"text": r.text})
-
-
-def get_provider():
-    return OTXProvider()
-
-# Module-level provider instance
-provider: IOCProvider = get_provider()
+__all__ = ["OTXProvider"]
 
 

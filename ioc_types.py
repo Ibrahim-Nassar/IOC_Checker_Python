@@ -1,33 +1,55 @@
 """
-IOC parsing, validation and normalisation.
-Only top-level docstrings are used, no inline comments.
+IOC types and result objects for the IOC Checker project.
 """
 from __future__ import annotations
+
+from enum import Enum
+from typing import Literal
+
+try:
+    from pydantic import BaseModel
+    _HAS_PYDANTIC = True
+except ImportError:
+    from dataclasses import dataclass
+    _HAS_PYDANTIC = False
+
 import regex as re
 import ipaddress
 import urllib.parse
 from typing import Callable, Dict, Tuple
-from providers import _extract_ip
 
-_RE_DOMAIN  = re.compile(r"^(?=.{4,253}$)[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
-                         r"(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\.[A-Za-z]{2,}$")
-_RE_HASH    = re.compile(r"^(?:[A-Fa-f0-9]{32}|[A-Fa-f0-9]{40}|[A-Fa-f0-9]{64})$")
-_RE_EMAIL   = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-# More specific file path regex that matches actual file paths
-_RE_FILE    = re.compile(r"^(?:[A-Za-z]:\\[^<>:\"|?*\n]+|\.{0,2}/[^<>:\"|?*\n]+|[^/\\:]+\.[a-zA-Z0-9]{1,10})$")
-_RE_REG     = re.compile(r"^HK[LMCU]")
-_RE_WALLET  = re.compile(r"^0x[a-fA-F0-9]{40}$")
-_RE_ASN     = re.compile(r"^AS\d+$")
-_RE_ATTCK   = re.compile(r"^T\d{4}(?:\.\d{3})?$")
+__all__ = ["IOCStatus", "IOCResult", "detect_ioc_type"]
 
-# Pre-compiled date/time regex patterns for faster validation
-_DT_REGEXES = [
-    re.compile(r'^\d{1,2}/\d{1,2}/\d{2,4}(\s+\d{1,2}:\d{2}(:\d{2})?(\s*[AaPp][Mm])?)?$'),
-    re.compile(r'^\d{4}-\d{2}-\d{2}(\s+\d{1,2}:\d{2}(:\d{2})?)?$'),
-    re.compile(r'^\d{1,2}:\d{2}(:\d{2})?(\s*[AaPp][Mm])?$')
-]
 
-# Common valid TLDs (subset of most common ones)
+class IOCStatus(Enum):
+    SUCCESS = "success"
+    MALICIOUS = "malicious"
+    ERROR = "error"
+    UNSUPPORTED = "unsupported"
+
+
+if _HAS_PYDANTIC:
+    class IOCResult(BaseModel):
+        ioc: str
+        ioc_type: Literal["ip", "domain", "url", "hash"]
+        status: IOCStatus
+        malicious_engines: int = 0
+        total_engines: int = 0
+        message: str = ""
+else:
+    @dataclass
+    class IOCResult:
+        ioc: str
+        ioc_type: Literal["ip", "domain", "url", "hash"]
+        status: IOCStatus
+        malicious_engines: int = 0
+        total_engines: int = 0
+        message: str = ""
+
+
+_RE_DOMAIN = re.compile(r"^(?=.{4,253}$)[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+                        r"(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\.[A-Za-z]{2,}$")
+_RE_HASH = re.compile(r"^(?:[A-Fa-f0-9]{32}|[A-Fa-f0-9]{40}|[A-Fa-f0-9]{64})$")
 _VALID_TLDS = {
     'com', 'org', 'net', 'edu', 'gov', 'mil', 'int', 'io', 'co', 'ch', 'de', 'uk', 'fr', 'it', 'es', 'pl', 'nl', 'be', 'se', 'no', 'dk', 'fi', 'pt', 'gr', 'at', 'cz', 'hu', 'ro', 'bg', 'hr', 'si', 'sk', 'lt', 'lv', 'ee', 'mt', 'lu', 'cy', 'ie', 'is', 'li', 'mc', 'sm', 'va', 'ad', 'ru', 'ua', 'by', 'md', 'ge', 'am', 'az', 'kz', 'kg', 'tj', 'tm', 'uz', 'cn', 'jp', 'kr', 'tw', 'hk', 'mo', 'sg', 'my', 'th', 'vn', 'ph', 'id', 'in', 'pk', 'bd', 'lk', 'np', 'bt', 'mv', 'af', 'ir', 'iq', 'sy', 'lb', 'jo', 'ps', 'il', 'tr', 'cy', 'eg', 'ly', 'tn', 'dz', 'ma', 'sd', 'so', 'et', 'ke', 'tz', 'ug', 'rw', 'bi', 'mw', 'zm', 'zw', 'bw', 'na', 'sz', 'ls', 'mg', 'mu', 'sc', 'km', 'dj', 'er', 'cf', 'td', 'cm', 'gq', 'ga', 'cg', 'cd', 'ao', 'st', 'gh', 'tg', 'bj', 'ne', 'bf', 'ml', 'sn', 'gm', 'gw', 'cv', 'sl', 'lr', 'ci', 'gn', 'mr', 'eh', 'us', 'ca', 'mx', 'gt', 'bz', 'sv', 'hn', 'ni', 'cr', 'pa', 'cu', 'do', 'ht', 'jm', 'tt', 'bb', 'gd', 'vc', 'lc', 'dm', 'ag', 'kn', 'ms', 'ai', 'vg', 'vi', 'pr', 'br', 'ar', 'uy', 'py', 'bo', 'pe', 'ec', 'co', 've', 'gy', 'sr', 'gf', 'fk', 'gs', 'au', 'nz', 'pg', 'sb', 'vu', 'nc', 'pf', 'wf', 'ws', 'to', 'tv', 'nu', 'ck', 'ki', 'pw', 'fm', 'mh', 'nr', 'um', 'mp', 'gu', 'as', 'cc', 'cx', 'nf', 'hm', 'aq', 'tf', 'bv', 'sj', 'gl', 'fo', 'ax', 'info', 'biz', 'name', 'pro', 'museum', 'coop', 'aero', 'jobs', 'mobi', 'travel', 'xxx', 'cat', 'tel', 'asia', 'post', 'arpa', 'local', 'localhost', 'test', 'example', 'invalid', 'onion', 'exit', 'i2p'
 }

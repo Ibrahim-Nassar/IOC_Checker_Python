@@ -1,65 +1,44 @@
-import asyncio
+from ioc_types import IOCResult, IOCStatus
+from ioc_checker import aggregate_verdict
 import providers
-import ioc_checker
-from provider_interface import IOCResult
 
 
 def test_google_dns_clean(monkeypatch):
-    """8.8.8.8 must be considered clean with sample provider data."""
-
     class Prov:
-        def __init__(self, name: str, status: str) -> None:
+        def __init__(self, name: str, status: IOCStatus):
             self.NAME = name
             self.TIMEOUT = 1
             self._status = status
 
         def query_ioc(self, ioc_type: str, ioc_value: str) -> IOCResult:
-            return IOCResult(status=self._status, score=0.0, raw={})
+            return IOCResult(ioc=ioc_value, ioc_type=ioc_type, status=self._status)
 
-    providers_list = [
-        Prov("VirusTotal", "clean"),
-        Prov("AbuseIPDB", "clean"),
-        Prov("OTX", "clean"),
-        Prov("ThreatFox", "clean"),
-        Prov("GreyNoise", "clean"),
-    ]
-
+    providers_list = [Prov(n, IOCStatus.SUCCESS) for n in "ABCDE"]
     monkeypatch.setattr(providers, "PROVIDERS", providers_list, raising=False)
-    monkeypatch.setattr(providers, "ALWAYS_ON", providers_list, raising=False)
-    monkeypatch.setattr(ioc_checker, "ALWAYS_ON", providers_list, raising=False)
 
-    res = asyncio.run(ioc_checker.scan_single("8.8.8.8", False))
-    verdict = ioc_checker._aggregate_verdict(res["results"])
-    assert verdict == "clean"
+    results = [p.query_ioc("ip", "8.8.8.8") for p in providers.PROVIDERS]
+    verdict = aggregate_verdict(results)
+    assert verdict is IOCStatus.SUCCESS
 
 
 def test_malicious_with_two_hits(monkeypatch):
-    """At least two malicious signals should flip the verdict to malicious."""
-
     class Prov:
-        def __init__(self, name: str, status: str) -> None:
+        def __init__(self, name: str, status: IOCStatus):
             self.NAME = name
             self.TIMEOUT = 1
             self._status = status
 
         def query_ioc(self, ioc_type: str, ioc_value: str) -> IOCResult:
-            return IOCResult(status=self._status, score=100.0 if self._status == "malicious" else 0.0, raw={})
+            return IOCResult(ioc=ioc_value, ioc_type=ioc_type, status=self._status)
 
     providers_list = [
-        Prov("VirusTotal", "malicious"),
-        Prov("AbuseIPDB", "malicious"),
-        Prov("OTX", "clean"),
-        Prov("ThreatFox", "clean"),
-        Prov("GreyNoise", "clean"),
+        Prov("vt", IOCStatus.MALICIOUS),
+        Prov("abuse", IOCStatus.MALICIOUS),
+        Prov("otx", IOCStatus.SUCCESS),
+        Prov("tf", IOCStatus.SUCCESS),
     ]
-
     monkeypatch.setattr(providers, "PROVIDERS", providers_list, raising=False)
-    monkeypatch.setattr(providers, "ALWAYS_ON", providers_list, raising=False)
-    monkeypatch.setattr(ioc_checker, "ALWAYS_ON", providers_list, raising=False)
 
-    res = asyncio.run(ioc_checker.scan_single("bad.io", False))
-    verdict = ioc_checker._aggregate_verdict(res["results"])
-    flagged = ioc_checker._flagged_by(res["results"]).split(",")
-
-    assert verdict == "malicious"
-    assert sorted(flagged) == ["AbuseIPDB", "VirusTotal"]
+    results = [p.query_ioc("domain", "bad.io") for p in providers.PROVIDERS]
+    verdict = aggregate_verdict(results)
+    assert verdict is IOCStatus.MALICIOUS

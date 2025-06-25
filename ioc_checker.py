@@ -1,221 +1,127 @@
 """
-Async IOC checker leveraging the unified provider interface.
-• Single-IOC look-ups  • Batch CSV/TXT scans
-• Clean console summaries  • Robust CSV parsing
-• Cross-platform UTF-8 output
+IOC checker with async providers using the new unified result format.
 """
-
 from __future__ import annotations
 
 import argparse
 import asyncio
 import logging
 import os
-import pathlib
 import sys
-from typing import Any, Dict, List
+from typing import Literal
 
-from api_key_store import load as _load_key
-from loader import load_iocs
-from provider_interface import IOCResult, IOCProvider
-from providers import ALWAYS_ON, get_providers
-from reports import write_csv
-from ioc_types import detect_ioc_type as _detect_ioc_type
+from ioc_types import IOCResult, IOCStatus, detect_ioc_type
+from providers import get_providers
 
-# Load API keys from fallback secret store
-for _env in (
-    "VT_API_KEY",
-    "OTX_API_KEY",
-    "ABUSEIPDB_API_KEY",
-    "THREATFOX_API_KEY",
-    "GREYNOISE_API_KEY",
-):
-    if _env not in os.environ:
-        _val = _load_key(_env)
-        if _val:
-            os.environ[_env] = _val
-
-
-def detect_ioc_type(value: str) -> tuple[str, str]:
-    """Delegate to :func:`ioc_types.detect_ioc_type`."""
-    return _detect_ioc_type(value)
-
-
-# Ensure UTF-8 output on all platforms
 try:
-    sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
-    sys.stderr.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
 except AttributeError:
     pass
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("ioc_checker")
 
-###############################################################################
-# Provider querying                                                           #
-###############################################################################
+
+def aggregate_verdict(results: list[IOCResult]) -> IOCStatus:
+    """
+    Aggregate multiple IOC results into a single verdict.
+    """
+    if any(r.status == IOCStatus.MALICIOUS for r in results):
+        return IOCStatus.MALICIOUS
+    elif any(r.status == IOCStatus.ERROR for r in results):
+        return IOCStatus.ERROR
+    elif any(r.status == IOCStatus.UNSUPPORTED for r in results) and not any(r.status == IOCStatus.ERROR for r in results):
+        return IOCStatus.UNSUPPORTED
+    else:
+        return IOCStatus.SUCCESS
 
 
-async def _query(
-    ioc_type: str,
-    ioc_value: str,
-    providers: List[IOCProvider],
-) -> Dict[str, Dict[str, Any]]:
-    async def _invoke(prov):
+async def query_providers(ioc: str, ioc_type: Literal["ip", "domain", "url", "hash"], provider_names: list[str] | None = None) -> list[IOCResult]:
+    """
+    Query multiple providers for an IOC and return their results.
+    """
+    providers = get_providers(provider_names)
+    
+    async def query_single_provider(provider):
         try:
-            result: IOCResult = await asyncio.wait_for(
-                asyncio.to_thread(prov.query_ioc, ioc_type, ioc_value),
-                timeout=prov.TIMEOUT + 2,
+            if hasattr(provider, 'query_ioc'):
+                result = await asyncio.to_thread(provider.query_ioc, ioc, ioc_type)
+                if isinstance(result, IOCResult):
+                    return result
+                else:
+                    return IOCResult(
+                        ioc=ioc,
+                        ioc_type=ioc_type,
+                        status=IOCStatus.ERROR,
+                        message="Provider returned invalid result format"
+                    )
+            else:
+                return IOCResult(
+                    ioc=ioc,
+                    ioc_type=ioc_type,
+                    status=IOCStatus.ERROR,
+                    message="Provider does not support new query interface"
+                )
+        except Exception as e:
+            return IOCResult(
+                ioc=ioc,
+                ioc_type=ioc_type,
+                status=IOCStatus.ERROR,
+                message=f"Provider {getattr(provider, 'NAME', 'unknown')} failed: {str(e)}"
             )
-            return prov.NAME, {
-                "status": result.status,
-                "score": result.score or 0,
-                "raw": result.raw,
-            }
-        except asyncio.TimeoutError:
-            return prov.NAME, {"status": "timeout", "score": 0, "raw": {}}
-        except Exception as exc:
-            log.warning("Provider %s failed: %s", prov.NAME, exc)
-            return prov.NAME, {"status": "error", "score": 0, "raw": {"error": str(exc)}}
-
-    tasks = [asyncio.create_task(_invoke(p)) for p in providers]
-    pairs = await asyncio.gather(*tasks)
-    return {name: data for name, data in pairs}
-
-
-###############################################################################
-# High-level scanning                                                         #
-###############################################################################
-
-
-async def scan_single(ioc_value: str, selected_names: list[str] | None = None):
-    ioc_type, normalized = detect_ioc_type(ioc_value)
-    if ioc_type == "unknown":
-        return {"value": ioc_value, "type": "unknown", "results": {}}
-
-    active = get_providers(selected_names) if selected_names else list(ALWAYS_ON)
-    results = await _query(ioc_type, normalized, active)
-    return {"value": normalized, "type": ioc_type, "results": results}
-
-
-async def batch_check_indicators(
-    ioc_values: list[str], selected_providers: list[str] | None = None
-):
-    results = []
-    for ioc_value in ioc_values:
-        try:
-            res = await scan_single(ioc_value, selected_providers)
-            results.append(res)
-        except Exception as exc:
-            log.warning("Failed processing %s: %s", ioc_value, exc)
-
-    flat_rows = [
-        {"ioc": r["value"], "verdict": _aggregate_verdict(r["results"]), "flagged_by": _flagged_by(r["results"])}
-        for r in results
-    ]
-    write_csv(pathlib.Path("results.csv"), flat_rows)
+    
+    tasks = [asyncio.create_task(query_single_provider(provider)) for provider in providers]
+    results = await asyncio.gather(*tasks)
     return results
 
 
-###############################################################################
-# Verdict helpers                                                             #
-###############################################################################
-
-
-def _aggregate_verdict(provider_results: Dict[str, Dict[str, Any]]) -> str:
-    flagged = sum(1 for r in provider_results.values() if r["status"] == "malicious")
-    return "malicious" if flagged >= 2 else "clean"
-
-
-def _flagged_by(provider_results: Dict[str, Dict[str, Any]]) -> str:
-    names = [name for name, r in provider_results.items() if r["status"] == "malicious"]
-    return ",".join(names)
-
-
-###############################################################################
-# Console output                                                              #
-###############################################################################
-
-
-def _print_result(provider_name: str, res: "IOCResult") -> None:
-    status = res.status
-    if status in ("success", "clean"):
-        verdict = "malicious" if (res.score or 0) >= 50 else "benign" if (res.score or 0) < 5 else "unknown"
-        print(f"{provider_name:<15}: {verdict:<8} score={res.score}", flush=True)
-    else:
-        print(f"{provider_name:<15}: ERROR – {res.status}", flush=True)
-
-
-###############################################################################
-# File batch mode                                                             #
-###############################################################################
-
-
-async def process_file(path: str, out: str, selected: list[str] | None):
-    inpath, outpath = pathlib.Path(path), pathlib.Path(out)
-    try:
-        iocs = load_iocs(inpath)
-    except Exception as exc:
-        log.error("Failed to load IOCs: %s", exc)
-        return
-
-    results = []
-    total = len(iocs)
-    for idx, row in enumerate(iocs, 1):
-        try:
-            res = await scan_single(row["value"], selected)
-            results.append(res)
-            if idx % 25 == 0:
-                log.info("Processed %d/%d", idx, total)
-        except KeyboardInterrupt:
-            break
-        except Exception as exc:
-            log.warning("Failed processing %s: %s", row["value"], exc)
-
-    flat_rows = [
-        {"ioc": r["value"], "verdict": _aggregate_verdict(r["results"]), "flagged_by": _flagged_by(r["results"])}
-        for r in results
-    ]
-    write_csv(outpath, flat_rows)
-    print(f"Report written to {outpath}")
-
-
-###############################################################################
-# CLI Entrypoint                                                              #
-###############################################################################
-
-
 def main() -> None:
-    ap = argparse.ArgumentParser(description="IOC checker with async providers")
-    ap.add_argument("ioc_type", nargs="?", help="IOC type for single lookup (auto-detect if omitted)")
-    ap.add_argument("value", nargs="?", help="IOC value for single lookup")
-    ap.add_argument("--file", help="Input file path (CSV, TSV, XLSX, TXT)")
-    ap.add_argument("-o", "--out", default="results.csv", help="Output filename")
-    ap.add_argument("--providers", help="Comma-separated list of providers to use (by NAME)")
-    args = ap.parse_args()
+    parser = argparse.ArgumentParser(description="IOC checker with unified provider interface")
+    parser.add_argument("ioc", nargs="?", help="IOC value to check")
+    parser.add_argument("--type", help="IOC type (ip, domain, url, hash) - auto-detected if not provided")
+    parser.add_argument("--providers", help="Comma-separated list of provider names to use")
+    
+    args = parser.parse_args()
+    
+    if not args.ioc:
+        parser.error("IOC value is required")
+    
+    if args.type:
+        ioc_type = args.type.lower()
+        if ioc_type not in ["ip", "domain", "url", "hash"]:
+            parser.error("Invalid IOC type. Must be one of: ip, domain, url, hash")
+        normalized_ioc = args.ioc
+    else:
+        detected_type, normalized_ioc = detect_ioc_type(args.ioc)
+        if detected_type == "unknown":
+            parser.error(f"Could not auto-detect IOC type for: {args.ioc}")
+        ioc_type = detected_type
+    
+    provider_names = [p.strip() for p in args.providers.split(",")] if args.providers else None
+    
+    async def run_check():
+        print(f"\nChecking IOC: {normalized_ioc} (type: {ioc_type})")
+        print("-" * 60)
+        
+        results = await query_providers(normalized_ioc, ioc_type, provider_names)
+        
+        for result in results:
+            provider_name = result.message.split()[1] if "Provider" in result.message else "unknown"
+            for provider in get_providers(provider_names):
+                if hasattr(provider, 'NAME') and provider.NAME.lower() in result.message.lower():
+                    provider_name = provider.NAME
+                    break
+            
+            print(f"{provider_name}: {result.status.name} (mal {result.malicious_engines}/{result.total_engines})")
+        
+        overall_verdict = aggregate_verdict(results)
+        print(f"\nOVERALL: {overall_verdict.name}")
+    
+    asyncio.run(run_check())
 
-    selected = [p.strip() for p in args.providers.split(",")] if args.providers else None
 
-    if args.value:
-        async def _run():
-            _sel_objs = get_providers(selected)
-            res = await scan_single(args.value, selected)
-
-            print(f"\nIOC  : {res['value']}  ({res['type']})")
-            print("-" * 60)
-            for prov_obj in _sel_objs:
-                pdata = res["results"].get(prov_obj.NAME, {"status": "error", "score": None, "raw": {}})
-                _print_result(prov_obj.NAME, IOCResult(**pdata))
-            print()
-
-        asyncio.run(_run())
-        return
-
-    if args.file:
-        asyncio.run(process_file(args.file, args.out, selected))
-        return
-
-    ap.error("Provide either (value) or --file")
+__all__ = ["main", "aggregate_verdict"]
 
 
 if __name__ == "__main__":

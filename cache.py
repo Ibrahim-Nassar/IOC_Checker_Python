@@ -1,17 +1,35 @@
-import requests_cache
+from __future__ import annotations
 
-# Create a cached session with a 24-hour TTL (86 400 s)
-session = requests_cache.CachedSession(
-    cache_name=".cache/http_cache",
-    backend="sqlite",
-    expire_after=86_400,
+import requests
+import requests_cache
+from requests.adapters import HTTPAdapter
+from urllib3.util import Retry
+
+"""
+Single authoritative HTTP helper with caching and retries.
+"""
+
+_retry_config = Retry(
+    total=3,
+    backoff_factor=0.3,
+    status_forcelist=[500, 502, 503, 504]
 )
 
+_SESSION = requests_cache.CachedSession(
+    cache_name='.ioc_cache',
+    backend='sqlite'
+)
 
-def clear() -> None:
-    """Clear all cached responses but keep the backend intact."""
-    try:
-        session.cache.clear()
-    except Exception:
-        # Ignore errors so the caller never crashes when clearing the cache
-        pass 
+_SESSION.mount('http://', HTTPAdapter(max_retries=_retry_config))
+_SESSION.mount('https://', HTTPAdapter(max_retries=_retry_config))
+
+
+def get(url: str, *, timeout: float = 5.0, ttl: int = 900) -> requests.Response:
+    return _SESSION.get(url, timeout=timeout, expire_after=ttl)
+
+
+def post(url: str, json: dict, *, timeout: float = 5.0, ttl: int = 900) -> requests.Response:
+    return _SESSION.post(url, json=json, timeout=timeout, expire_after=ttl)
+
+
+__all__ = ["get", "post"] 

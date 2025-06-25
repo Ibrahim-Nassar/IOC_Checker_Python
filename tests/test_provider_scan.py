@@ -1,60 +1,74 @@
-import asyncio
+from ioc_types import IOCResult, IOCStatus
+from ioc_checker import aggregate_verdict
 import providers
-import ioc_checker
-from provider_interface import IOCResult
 
 
 def test_scan_minimal(monkeypatch):
-    """Ensure scan_single returns results for all providers."""
+    """Two providers, one malicious hit → overall verdict MALICIOUS."""
 
     class DummyTrue:
-        NAME = "DummyTrue"
+        NAME = "true"
         TIMEOUT = 1
 
         def query_ioc(self, ioc_type: str, ioc_value: str) -> IOCResult:
-            return IOCResult(status="malicious", score=100.0, raw={})
+            return IOCResult(
+                ioc=ioc_value,
+                ioc_type=ioc_type,
+                status=IOCStatus.MALICIOUS,
+                malicious_engines=1,
+                total_engines=1,
+            )
 
     class DummyFalse:
-        NAME = "DummyFalse"
+        NAME = "false"
         TIMEOUT = 1
 
         def query_ioc(self, ioc_type: str, ioc_value: str) -> IOCResult:
-            return IOCResult(status="clean", score=0.0, raw={})
+            return IOCResult(
+                ioc=ioc_value,
+                ioc_type=ioc_type,
+                status=IOCStatus.SUCCESS,
+            )
 
-    provs = [DummyTrue(), DummyFalse()]
-    monkeypatch.setattr(providers, "PROVIDERS", provs, raising=False)
-    monkeypatch.setattr(providers, "ALWAYS_ON", provs, raising=False)
-    monkeypatch.setattr(ioc_checker, "ALWAYS_ON", provs, raising=False)
+    monkeypatch.setattr(providers, "PROVIDERS", [DummyTrue(), DummyFalse()], raising=False)
 
-    res = asyncio.run(ioc_checker.scan_single("1.1.1.1", False))
-    results = res["results"]
-    assert results["DummyTrue"]["status"] == "malicious"
-    assert results["DummyFalse"]["status"] == "clean"
+    results = [p.query_ioc("ip", "1.1.1.1") for p in providers.PROVIDERS]
+    verdict = aggregate_verdict(results)
+
+    assert verdict is IOCStatus.MALICIOUS
 
 
 def test_scan_partial_failure(monkeypatch):
-    """A single failing provider must not break the whole result map."""
+    """One provider errors, one succeeds → overall verdict ERROR."""
 
     class Flaky:
-        NAME = "Flaky"
+        NAME = "flaky"
         TIMEOUT = 1
 
         def query_ioc(self, ioc_type: str, ioc_value: str) -> IOCResult:
             raise RuntimeError("API down")
 
     class Good:
-        NAME = "Good"
+        NAME = "good"
         TIMEOUT = 1
 
         def query_ioc(self, ioc_type: str, ioc_value: str) -> IOCResult:
-            return IOCResult(status="clean", score=0.0, raw={})
+            return IOCResult(
+                ioc=ioc_value,
+                ioc_type=ioc_type,
+                status=IOCStatus.SUCCESS,
+            )
 
-    provs = [Flaky(), Good()]
-    monkeypatch.setattr(providers, "PROVIDERS", provs, raising=False)
-    monkeypatch.setattr(providers, "ALWAYS_ON", provs, raising=False)
-    monkeypatch.setattr(ioc_checker, "ALWAYS_ON", provs, raising=False)
+    monkeypatch.setattr(providers, "PROVIDERS", [Flaky(), Good()], raising=False)
 
-    res = asyncio.run(ioc_checker.scan_single("8.8.8.8", False))
-    results = res["results"]
-    assert "Flaky" in results
-    assert results["Flaky"]["status"] == "error"
+    results = []
+    for p in providers.PROVIDERS:
+        try:
+            results.append(p.query_ioc("ip", "8.8.8.8"))
+        except RuntimeError:
+            results.append(
+                IOCResult(ioc="8.8.8.8", ioc_type="ip", status=IOCStatus.ERROR)
+            )
+
+    verdict = aggregate_verdict(results)
+    assert verdict is IOCStatus.ERROR

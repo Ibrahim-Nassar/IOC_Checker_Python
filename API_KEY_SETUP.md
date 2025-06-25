@@ -4,91 +4,47 @@
 
 The VirusTotal results show "n/a" because **no API key is configured**. Without an API key, the IOC checker cannot make requests to the VirusTotal API.
 
-## Required API Keys
+## Required Environment Variables
 
-The IOC checker supports several providers that require API keys:
+| Provider | Environment Variable | Fallback Variable |
+|----------|---------------------|-------------------|
+| VirusTotal | `VIRUSTOTAL_API_KEY` | `VT_API_KEY` |
+| AlienVault OTX | `OTX_API_KEY` | `ALIENVAULT_OTX_API_KEY` |
+| ThreatFox | `THREATFOX_API_KEY` | - |
+| AbuseIPDB | `ABUSEIPDB_API_KEY` | - |
+| GreyNoise | `GREYNOISE_API_KEY` | - |
 
-### 1. **VirusTotal** (Recommended)
-- **Free tier**: 4 requests/minute, 500 requests/day
-- **Sign up**: https://www.virustotal.com/gui/join-us
-- **Get API key**: https://www.virustotal.com/gui/my-apikey
-- **Environment variable**: `VIRUSTOTAL_API_KEY`
+## Setup Instructions
 
-### 2. **AbuseIPDB** (For IP reputation)
-- **Free tier**: 1,000 requests/day
-- **Sign up**: https://www.abuseipdb.com/register
-- **Environment variable**: `ABUSEIPDB_API_KEY`
+### Option 1: Environment Variables (Recommended)
 
-### 3. **Other Providers** (Optional)
-- **GreyNoise**: `GREYNOISE_API_KEY`
-- **Shodan**: `SHODAN_API_KEY`
-- **Pulsedive**: `PULSEDIVE_API_KEY`
+Set environment variables in your shell:
 
-## How to Configure API Keys
-
-### Method 1: Create a .env file (Recommended)
-
-1. **Create** a file named `.env` in the project directory:
-   ```
-   c:\KAS\Python Scripts\Python_IOC_Checker\.env
-   ```
-
-2. **Add your API keys** to the file:
-   ```bash
-   VIRUSTOTAL_API_KEY=your_virustotal_api_key_here
-   ABUSEIPDB_API_KEY=your_abuseipdb_api_key_here
-   # GREYNOISE_API_KEY=your_greynoise_api_key_here
-   # SHODAN_API_KEY=your_shodan_api_key_here
-   ```
-
-3. **Save the file** and restart the application
-
-### Method 2: System Environment Variables
-
-Set environment variables in Windows:
-1. Open **System Properties** → **Advanced** → **Environment Variables**
-2. Add **New** user variables:
-   - Variable: `VIRUSTOTAL_API_KEY`
-   - Value: `your_api_key_here`
-
-## Testing API Key Configuration
-
-Create this test file to verify your API keys work:
-
-```python
-# test_api_keys.py
-import os
-from dotenv import load_dotenv
-
-# Load .env file
-load_dotenv()
-
-def test_api_keys():
-    """Test if API keys are properly configured."""
-    providers = {
-        "VirusTotal": os.getenv("VIRUSTOTAL_API_KEY"),
-        "AbuseIPDB": os.getenv("ABUSEIPDB_API_KEY"),
-        "GreyNoise": os.getenv("GREYNOISE_API_KEY"),
-        "Shodan": os.getenv("SHODAN_API_KEY")
-    }
-    
-    print("🔑 API Key Configuration Status:")
-    print("=" * 40)
-    
-    for provider, key in providers.items():
-        if key and key.strip():
-            print(f"✅ {provider}: Configured ({key[:8]}...)")
-        else:
-            print(f"❌ {provider}: Not configured")
-    
-    print("\n📝 To configure missing keys:")
-    print("1. Create a .env file in the project directory")
-    print("2. Add: PROVIDER_API_KEY=your_key_here")
-    print("3. Restart the application")
-
-if __name__ == "__main__":
-    test_api_keys()
+```bash
+export VIRUSTOTAL_API_KEY=your_virustotal_key_here
 ```
+
+### Option 2: .env File
+
+Create a `.env` file in the project root with your API keys. See `.env.example` for the format.
+
+### Option 3: GUI Configuration
+
+If environment variables are not detected, the GUI will prompt you to enter API keys manually. These are stored locally and persist between sessions.
+
+## Getting API Keys
+
+- **VirusTotal**: Register at https://www.virustotal.com/gui/join-us
+- **AlienVault OTX**: Register at https://otx.alienvault.com/
+- **ThreatFox**: Register at https://threatfox.abuse.ch/
+- **AbuseIPDB**: Register at https://www.abuseipdb.com/
+- **GreyNoise**: Register at https://www.greynoise.io/
+
+## Notes
+
+- Free API keys have rate limits and feature restrictions
+- Some providers work without API keys but with limited functionality
+- The tool gracefully handles missing API keys by skipping those providers
 
 ## Expected Results After Configuration
 
