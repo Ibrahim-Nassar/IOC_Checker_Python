@@ -71,9 +71,10 @@ def pytest_collection_modifyitems(items):
 
 def pytest_configure(config):  # noqa: D401 – simple hook
     try:
-        asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
     except RuntimeError:
-        asyncio.set_event_loop(asyncio.new_event_loop()) 
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
 
 # ---------------------------------------------------------------------------
 # Guarantee headless-friendly tkinter.Tk during tests (handles late imports)

@@ -1,0 +1,15 @@
+„«status_codeÌÈ®stream_contentÅM{
+  "args": {
+    "id": "test"
+  }, 
+  "headers": {
+    "Accept": "*/*", 
+    "Accept-Encoding": "gzip, deflate", 
+    "Host": "httpbin.org", 
+    "User-Agent": "python-httpx/0.27.2", 
+    "X-Amzn-Trace-Id": "Root=1-685cfc86-4c247b4944a433150ada906d"
+  }, 
+  "origin": "156.213.191.87", 
+  "url": "https://httpbin.org/get?id=test"
+}
+§headers—’¤date½Thu, 26 Jun 2025 07:53:42 GMT’¬content-type°application/json’®content-length£333’ªconnectionªkeep-alive’¦server¯gunicorn/19.9.0’»access-control-allow-origin¡*’Ù access-control-allow-credentials¤true¨encoding¥utf-8

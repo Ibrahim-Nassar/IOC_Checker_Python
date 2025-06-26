@@ -14,10 +14,11 @@ import threading
 import subprocess
 import queue
 from pathlib import Path
+import functools
 
 from ioc_types import IOCStatus, IOCResult, detect_ioc_type
 from providers import get_providers
-from ioc_checker import aggregate_verdict, query_providers
+from ioc_checker import aggregate_verdict, scan_ioc
 
 _STATUS_MAP = {
     IOCStatus.SUCCESS: "✔ Clean",
@@ -42,6 +43,9 @@ AVAILABLE_PROVIDERS = {
     'threatfox': 'ThreatFox',
     'greynoise': 'GreyNoise',
 }
+
+_LOOP = asyncio.new_event_loop()
+threading.Thread(target=_LOOP.run_forever, daemon=True).start()
 
 class IOCCheckerGUI:
     
@@ -107,9 +111,9 @@ class IOCCheckerGUI:
         
         ttk.Label(input_frame, text="IOC Value:").grid(row=0, column=2, sticky="w", padx=(0, 5))
         self.ioc_var = tk.StringVar()
-        ioc_entry = ttk.Entry(input_frame, textvariable=self.ioc_var, width=40)
-        ioc_entry.grid(row=0, column=3, sticky="ew", padx=(0, 10))
-        ioc_entry.bind("<Return>", self._start_single)
+        self.ioc_entry = ttk.Entry(input_frame, textvariable=self.ioc_var, width=40)
+        self.ioc_entry.grid(row=0, column=3, sticky="ew", padx=(0, 10))
+        self.ioc_entry.bind("<Return>", self._start_single)
         
         ttk.Button(input_frame, text="Check", command=self._start_single).grid(row=0, column=4)
         
@@ -296,49 +300,53 @@ class IOCCheckerGUI:
         placeholder = self.out.insert('', 'end', values=(ioc_type, ioc_value, "Processing...", ""))
         self.root.update()
         
-        def run_single_check():
-            try:
-                selected_provider_names = [p.NAME.lower() for p in self._selected_providers()]
-                
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                
-                results = loop.run_until_complete(
-                    query_providers(ioc_value, ioc_type, selected_provider_names)
-                )
-                
-                loop.close()
-                
-                overall_verdict = aggregate_verdict(results)
-                flagged_providers = [r.message.split()[1] if "Provider" in r.message else "unknown" 
-                                   for r in results if r.status == IOCStatus.MALICIOUS]
-                
-                provider_values = []
-                for col in self.provider_columns:
-                    result = next((r for r in results if col in r.message.lower()), None)
-                    if result:
-                        provider_values.append(_STATUS_MAP.get(result.status, result.status.name))
-                    else:
-                        provider_values.append("")
-                
-                row_values = (
-                    ioc_type,
-                    ioc_value, 
-                    _STATUS_MAP.get(overall_verdict, overall_verdict.name),
-                    ", ".join(flagged_providers)
-                ) + tuple(provider_values)
-                
-                self.root.after(0, lambda: self._show_result(row_values, placeholder))
-                
-            except Exception as e:
-                error_msg = str(e)
-                self.root.after(0, lambda: self._show_result(
-                    (ioc_type, ioc_value, "Error", error_msg) + tuple("" for _ in self.provider_columns), 
-                    placeholder
-                ))
+        future = asyncio.run_coroutine_threadsafe(
+            scan_ioc(ioc_value, ioc_type), _LOOP
+        )
+        future.add_done_callback(
+            functools.partial(self._on_scan_done, ioc_value, ioc_type, placeholder)
+        )
+    
+    def _on_scan_done(self, ioc, ioc_type, placeholder, fut):
+        try:
+            results = fut.result()
+            self.root.after(0, lambda: self.update_table(results, ioc, ioc_type, placeholder))
+        except Exception as e:
+            error_msg = str(e)
+            self.root.after(0, lambda: self.update_table({}, ioc, ioc_type, placeholder, error_msg))
+    
+    def update_table(self, results, ioc, ioc_type, placeholder=None, error_msg=None):
+        if error_msg:
+            row_values = (ioc_type, ioc, "Error", error_msg) + tuple("" for _ in self.provider_columns)
+        else:
+            overall_verdict = aggregate_verdict(list(results.values()))
+            flagged_providers = [name for name, result in results.items() 
+                               if result.status == IOCStatus.MALICIOUS]
+            
+            provider_values = []
+            for col in self.provider_columns:
+                if col in results:
+                    result = results[col]
+                    status_text = _STATUS_MAP.get(result.status, result.status.name)
+                    if result.malicious_engines and result.total_engines:
+                        status_text += f" ({result.malicious_engines}/{result.total_engines})"
+                    provider_values.append(status_text)
+                else:
+                    provider_values.append("")
+            
+            row_values = (
+                ioc_type,
+                ioc,
+                _STATUS_MAP.get(overall_verdict, overall_verdict.name),
+                ", ".join(flagged_providers)
+            ) + tuple(provider_values)
         
-        thread = threading.Thread(target=run_single_check, daemon=True)
-        thread.start()
+        if placeholder and self.out.exists(placeholder):
+            self.out.item(placeholder, values=row_values)
+        else:
+            self.out.insert("", "end", values=row_values)
+        
+        self.all_results.append(row_values)
     
     def _start_batch(self):
         filename = self.file_var.get().strip()
@@ -366,89 +374,83 @@ class IOCCheckerGUI:
             self.out.insert('', 'end', values=("Batch", filename, f"Processing {len(iocs)} IOCs...", ""))
             self.root.update()
             
-            def run_batch():
-                try:
-                    selected_provider_names = [p.NAME.lower() for p in self._selected_providers()]
+            async def process_batch():
+                for ioc_data in iocs:
+                    ioc_value = ioc_data.get('value', str(ioc_data))
+                    ioc_type, normalized_ioc = detect_ioc_type(ioc_value)
                     
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    
-                    for ioc_data in iocs:
-                        ioc_value = ioc_data.get('value', str(ioc_data))
-                        ioc_type, normalized_ioc = detect_ioc_type(ioc_value)
-                        
-                        if ioc_type != "unknown":
-                            results = loop.run_until_complete(
-                                query_providers(normalized_ioc, ioc_type, selected_provider_names)
-                            )
-                            
-                            overall_verdict = aggregate_verdict(results)
-                            flagged_providers = [r.message.split()[1] if "Provider" in r.message else "unknown"
-                                               for r in results if r.status == IOCStatus.MALICIOUS]
-                            
-                            provider_values = []
-                            for col in self.provider_columns:
-                                result = next((r for r in results if col in r.message.lower()), None)
-                                if result:
-                                    provider_values.append(_STATUS_MAP.get(result.status, result.status.name))
-                                else:
-                                    provider_values.append("")
-                            
-                            row_values = (
-                                ioc_type,
-                                normalized_ioc,
-                                _STATUS_MAP.get(overall_verdict, overall_verdict.name),
-                                ", ".join(flagged_providers)
-                            ) + tuple(provider_values)
-                            
-                            self.root.after(0, lambda vals=row_values: self._show_result(vals))
-                    
-                    loop.close()
-                    self.root.after(0, lambda: self._batch_complete(len(iocs)))
-                    
-                except Exception as e:
-                    error_msg = str(e)
-                    self.root.after(0, lambda msg=error_msg: self._batch_error(msg))
+                    if ioc_type != "unknown":
+                        results = await scan_ioc(normalized_ioc, ioc_type)
+                        self.root.after(0, lambda r=results, i=normalized_ioc, t=ioc_type: 
+                                      self.update_table(r, i, t))
+                
+                self.root.after(0, lambda: messagebox.showinfo("Batch Complete", 
+                                                              f"Successfully processed {len(iocs)} IOCs."))
             
-            thread = threading.Thread(target=run_batch, daemon=True)
-            thread.start()
+            future = asyncio.run_coroutine_threadsafe(process_batch(), _LOOP)
             
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load IOCs: {str(e)}")
     
-    def _batch_complete(self, count):
-        messagebox.showinfo("Batch Complete", f"Successfully processed {count} IOCs.")
+    def _configure_api_keys(self):
+        config_win = tk.Toplevel(self.root)
+        config_win.title("API Key Configuration")
+        config_win.geometry("600x400")
+        config_win.transient(self.root)
+        config_win.grab_set()
+        
+        main_frame = ttk.Frame(config_win)
+        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        ttk.Label(main_frame, text="Configure API Keys", font=("Arial", 14, "bold")).pack(pady=(0, 20))
+        
+        entries = {}
+        for provider_id, name, env_var, _, _ in self.providers_info:
+            frame = ttk.Frame(main_frame)
+            frame.pack(fill="x", pady=5)
+            
+            ttk.Label(frame, text=f"{name} ({env_var}):", width=25).pack(side="left")
+            entry = ttk.Entry(frame, show="*", width=40)
+            entry.pack(side="left", fill="x", expand=True, padx=(10, 0))
+            entry.insert(0, os.getenv(env_var, ""))
+            entries[env_var] = entry
+        
+        buttons_frame = ttk.Frame(main_frame)
+        buttons_frame.pack(fill="x", pady=(20, 0))
+        
+        def save_keys():
+            for env_var, entry in entries.items():
+                value = entry.get().strip()
+                if value:
+                    os.environ[env_var] = value
+                elif env_var in os.environ:
+                    del os.environ[env_var]
+            messagebox.showinfo("Success", "API keys saved to current session.")
+            config_win.destroy()
+        
+        ttk.Button(buttons_frame, text="Cancel", command=config_win.destroy).pack(side="right", padx=(5, 0))
+        ttk.Button(buttons_frame, text="Save", command=save_keys).pack(side="right")
     
-    def _batch_error(self, error_msg):
-        messagebox.showerror("Batch Processing Error", f"Batch processing failed:\n\n{error_msg}")
+    def _prompt_provider_selection_if_needed(self):
+        if not any(self.provider_config.values()):
+            messagebox.showwarning("No Providers Selected", 
+                                 "Please configure at least one provider in Tools > Configure Providers.")
+            self._configure_providers()
+            return any(self.provider_config.values())
+        return True
     
-    def _show_result(self, *args, **kwargs):
-        if isinstance(args[0], (tuple, list)):
-            values_tuple = tuple(args[0])
-            row_id = args[1] if len(args) > 1 else None
-        else:
-            values_tuple = args
-            row_id = kwargs.get("row_id")
+    def _refresh_display(self):
+        for item in self.out.get_children():
+            self.out.delete(item)
         
-        if not hasattr(self, "all_results"):
-            self.all_results = []
-        
-        self.all_results.append(values_tuple)
-        
-        def should_display():
-            if not self.show_threats_var.get():
-                return True
-            status_text = str(values_tuple[2]).lower() if len(values_tuple) >= 3 else ""
-            return "malicious" in status_text or "error" in status_text
-        
-        if row_id and self.out.exists(row_id):
-            if should_display():
-                self.out.item(row_id, values=values_tuple)
-            else:
-                self.out.delete(row_id)
-        else:
-            if should_display():
-                self.out.insert("", "end", values=values_tuple)
+        for result in self.all_results:
+            should_display = True
+            if self.show_threats_var.get():
+                status_text = str(result[2]).lower() if len(result) >= 3 else ""
+                should_display = "malicious" in status_text or "error" in status_text
+            
+            if should_display:
+                self.out.insert("", "end", values=result)
     
     def _poll_queue(self):
         try:
@@ -468,86 +470,6 @@ class IOCCheckerGUI:
                 pass
         finally:
             self.root.after(100, self._poll_queue)
-    
-    def _configure_api_keys(self):
-        config_window = tk.Toplevel(self.root)
-        config_window.title("API Key Configuration")
-        config_window.geometry("700x400")
-        config_window.transient(self.root)
-        config_window.grab_set()
-        
-        main_frame = ttk.Frame(config_window)
-        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
-        
-        ttk.Label(main_frame, text="API Key Configuration", font=("Arial", 14, "bold")).pack(pady=(0, 20))
-        
-        providers_env = [
-            ("VirusTotal", "VT_API_KEY"),
-            ("OTX AlienVault", "OTX_API_KEY"), 
-            ("AbuseIPDB", "ABUSEIPDB_API_KEY"),
-            ("ThreatFox", "THREATFOX_API_KEY"),
-            ("GreyNoise", "GREYNOISE_API_KEY"),
-        ]
-        
-        self._api_vars = {}
-        
-        for i, (prov_name, env_var) in enumerate(providers_env):
-            frame = ttk.Frame(main_frame)
-            frame.pack(fill="x", pady=5)
-            
-            ttk.Label(frame, text=prov_name, width=15).pack(side="left")
-            
-            var = tk.StringVar(value=os.environ.get(env_var, ""))
-            self._api_vars[env_var] = var
-            
-            entry = ttk.Entry(frame, textvariable=var, show="•", width=50)
-            entry.pack(side="left", fill="x", expand=True, padx=(10, 0))
-        
-        btn_frame = ttk.Frame(main_frame)
-        btn_frame.pack(fill="x", pady=(20, 0))
-        
-        def save_keys():
-            try:
-                from api_key_store import save
-                for env_var, var in self._api_vars.items():
-                    key_val = var.get().strip()
-                    save(env_var, key_val)
-                    if key_val:
-                        os.environ[env_var] = key_val
-                config_window.destroy()
-                messagebox.showinfo("Success", "API keys saved successfully.")
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to save API keys: {str(e)}")
-        
-        ttk.Button(btn_frame, text="Save", command=save_keys).pack(side="right", padx=(10, 0))
-        ttk.Button(btn_frame, text="Cancel", command=config_window.destroy).pack(side="right")
-    
-    def _prompt_provider_selection_if_needed(self):
-        selected_providers = [p for p in self.provider_config.values() if p]
-        
-        if not selected_providers:
-            try:
-                self.show_providers_info()
-                selected_providers = [p for p in self.provider_config.values() if p]
-                if not selected_providers:
-                    return False
-            except Exception as e:
-                log.error(f"Error opening provider selection dialog: {e}")
-                return False
-        
-        return True
-    
-    def _refresh_display(self):
-        current_children = list(self.out.get_children())
-        self.out.delete(*current_children)
-        
-        for result in self.all_results:
-            status_text = str(result[2]).lower() if len(result) >= 3 else ""
-            should_show = (not self.show_threats_var.get() or 
-                          "malicious" in status_text or "error" in status_text)
-            
-            if should_show:
-                self.out.insert("", "end", values=result)
     
     def run(self):
         self.root.mainloop()

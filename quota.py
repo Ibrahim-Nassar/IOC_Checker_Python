@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import datetime as _dt
+import tempfile
+import shutil
 from pathlib import Path
 from typing import Dict
 
@@ -28,11 +30,28 @@ def _load() -> dict:
 
 
 def _save(data: dict) -> None:
+    """Atomically save quota data to prevent corruption during concurrent access."""
     try:
-        with _QUOTA_FILE.open("w", encoding="utf-8") as fh:
-            json.dump(data, fh)
+        # Write to temporary file first
+        with tempfile.NamedTemporaryFile(
+            mode="w", 
+            encoding="utf-8", 
+            dir=_QUOTA_FILE.parent,
+            delete=False,
+            suffix=".tmp"
+        ) as tmp_file:
+            json.dump(data, tmp_file)
+            tmp_filename = tmp_file.name
+        
+        # Atomically replace the original file
+        shutil.move(tmp_filename, _QUOTA_FILE)
     except Exception:
-        pass  # best effort
+        # Clean up temp file if something went wrong
+        try:
+            if 'tmp_filename' in locals():
+                os.unlink(tmp_filename)
+        except Exception:
+            pass  # best effort cleanup
 
 
 def _today_key() -> str:

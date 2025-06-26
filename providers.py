@@ -3,73 +3,54 @@ Provider registry for IOC_Checker using the unified provider interface.
 """
 from __future__ import annotations
 
-from typing import Dict
+from typing import List
 
-PROVIDERS = []
+PROV_CLASSES = []
 
 try:
     from virustotal_api import VirusTotalProvider
-    PROVIDERS.append(VirusTotalProvider)
+    PROV_CLASSES.append(VirusTotalProvider)
 except ImportError:
     pass
 
 try:
     from otx_api import OTXProvider
-    PROVIDERS.append(OTXProvider)
+    PROV_CLASSES.append(OTXProvider)
 except ImportError:
     pass
 
 try:
     from abuseipdb_api import AbuseIPDBProvider
-    PROVIDERS.append(AbuseIPDBProvider)
+    PROV_CLASSES.append(AbuseIPDBProvider)
 except ImportError:
     pass
 
 try:
     from threatfox_api import ThreatFoxProvider
-    PROVIDERS.append(ThreatFoxProvider)
+    PROV_CLASSES.append(ThreatFoxProvider)
 except ImportError:
     pass
 
 try:
     from greynoise_api import GreyNoiseProvider
-    PROVIDERS.append(GreyNoiseProvider)
+    PROV_CLASSES.append(GreyNoiseProvider)
 except ImportError:
     pass
 
+# Backward compatibility alias
+PROVIDERS = PROV_CLASSES
 
-def get_provider_map() -> Dict[str, type]:
-    """Return a mapping of provider NAME to provider class for quick lookups."""
-    provider_map = {}
-    for provider_class in PROVIDERS:
+
+def get_providers() -> List:
+    """Return instantiated provider objects from available provider classes."""
+    result = []
+    for cls in PROV_CLASSES:
         try:
-            provider_map[provider_class.NAME] = provider_class
-        except AttributeError:
-            pass
-    return provider_map
+            result.append(cls())
+        except Exception as exc:
+            import logging
+            logging.warning("%s disabled: %s", cls.__name__, exc)
+    return result
 
 
-def get_providers(selected: list[str] | None = None) -> list:
-    """Return provider instances.
-    
-    If selected is provided, items are matched case-insensitively against
-    each provider's NAME attribute. When selected is None the full
-    registry is returned.
-    """
-    available_providers = []
-    
-    for provider_class in PROVIDERS:
-        try:
-            provider_instance = provider_class()
-            available_providers.append(provider_instance)
-        except Exception:
-            continue
-    
-    if selected:
-        sel = {s.lower().strip() for s in selected}
-        return [p for p in available_providers if hasattr(p, 'NAME') and p.NAME.lower() in sel]
-    
-    return available_providers
-
-
-__all__ = ["PROVIDERS", "get_provider_map"] 
+__all__ = ["PROV_CLASSES", "get_providers", "PROVIDERS"] 

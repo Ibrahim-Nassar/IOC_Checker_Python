@@ -50,6 +50,13 @@ else:
 _RE_DOMAIN = re.compile(r"^(?=.{4,253}$)[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
                         r"(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\.[A-Za-z]{2,}$")
 _RE_HASH = re.compile(r"^(?:[A-Fa-f0-9]{32}|[A-Fa-f0-9]{40}|[A-Fa-f0-9]{64})$")
+_RE_EMAIL = re.compile(r".+?@.+")
+_RE_FILE = re.compile(r".+?\.(exe|dll|zip|rar|7z)")
+_RE_REG = re.compile(r"(?:HKLM|HKCU)\\.+")
+_RE_WALLET = re.compile(r"\b[a-f0-9]{32,}\b")
+_RE_ASN = re.compile(r"AS\d{1,10}")
+_RE_ATTCK = re.compile(r"^T\d{4}")
+
 _VALID_TLDS = {
     'com', 'org', 'net', 'edu', 'gov', 'mil', 'int', 'io', 'co', 'ch', 'de', 'uk', 'fr', 'it', 'es', 'pl', 'nl', 'be', 'se', 'no', 'dk', 'fi', 'pt', 'gr', 'at', 'cz', 'hu', 'ro', 'bg', 'hr', 'si', 'sk', 'lt', 'lv', 'ee', 'mt', 'lu', 'cy', 'ie', 'is', 'li', 'mc', 'sm', 'va', 'ad', 'ru', 'ua', 'by', 'md', 'ge', 'am', 'az', 'kz', 'kg', 'tj', 'tm', 'uz', 'cn', 'jp', 'kr', 'tw', 'hk', 'mo', 'sg', 'my', 'th', 'vn', 'ph', 'id', 'in', 'pk', 'bd', 'lk', 'np', 'bt', 'mv', 'af', 'ir', 'iq', 'sy', 'lb', 'jo', 'ps', 'il', 'tr', 'cy', 'eg', 'ly', 'tn', 'dz', 'ma', 'sd', 'so', 'et', 'ke', 'tz', 'ug', 'rw', 'bi', 'mw', 'zm', 'zw', 'bw', 'na', 'sz', 'ls', 'mg', 'mu', 'sc', 'km', 'dj', 'er', 'cf', 'td', 'cm', 'gq', 'ga', 'cg', 'cd', 'ao', 'st', 'gh', 'tg', 'bj', 'ne', 'bf', 'ml', 'sn', 'gm', 'gw', 'cv', 'sl', 'lr', 'ci', 'gn', 'mr', 'eh', 'us', 'ca', 'mx', 'gt', 'bz', 'sv', 'hn', 'ni', 'cr', 'pa', 'cu', 'do', 'ht', 'jm', 'tt', 'bb', 'gd', 'vc', 'lc', 'dm', 'ag', 'kn', 'ms', 'ai', 'vg', 'vi', 'pr', 'br', 'ar', 'uy', 'py', 'bo', 'pe', 'ec', 'co', 've', 'gy', 'sr', 'gf', 'fk', 'gs', 'au', 'nz', 'pg', 'sb', 'vu', 'nc', 'pf', 'wf', 'ws', 'to', 'tv', 'nu', 'ck', 'ki', 'pw', 'fm', 'mh', 'nr', 'um', 'mp', 'gu', 'as', 'cc', 'cx', 'nf', 'hm', 'aq', 'tf', 'bv', 'sj', 'gl', 'fo', 'ax', 'info', 'biz', 'name', 'pro', 'museum', 'coop', 'aero', 'jobs', 'mobi', 'travel', 'xxx', 'cat', 'tel', 'asia', 'post', 'arpa', 'local', 'localhost', 'test', 'example', 'invalid', 'onion', 'exit', 'i2p'
 }
@@ -73,6 +80,11 @@ _MALWARE_PREFIXES = {
     'win.', 'apk.', 'js.', 'elf.', 'osx.', 'linux.', 'android.', 'ios.',
     'trojan.', 'backdoor.', 'adware.', 'spyware.', 'ransomware.', 'worm.', 'virus.'
 }
+
+def _extract_ip(v: str) -> str:
+    """Return the first dotted-quad in the string or the original value."""
+    m = re.search(r"(?:\d{1,3}\.){3}\d{1,3}", v)
+    return m.group(0) if m else v
 
 def _strip_port(v:str)->str:
     if v.startswith('[') and ']:' in v: return v.split(']:')[0][1:]
@@ -122,11 +134,6 @@ def _valid_hash(v:str)->bool:     return bool(_RE_HASH.fullmatch(v))
 def _valid_email(v:str)->bool:    return bool(_RE_EMAIL.fullmatch(v))
 def _valid_file(v:str)->bool:     
     v_stripped = v.strip()
-    
-    # Exclude common date/time formats that contain slashes
-    if any(pat.match(v_stripped) for pat in _DT_REGEXES):
-        return False
-    
     # Check if it matches file path pattern
     return bool(_RE_FILE.fullmatch(v_stripped))
 def _valid_reg(v:str)->bool:      return bool(_RE_REG.match(v))

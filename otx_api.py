@@ -4,10 +4,10 @@ AlienVault OTX provider adapter for the IOC Checker project.
 from __future__ import annotations
 
 import os
-import requests
 from typing import Literal
 
-from ioc_types import IOCStatus, IOCResult
+from async_cache import aget
+from ioc_types import IOCResult, IOCStatus
 
 
 class OTXProvider:
@@ -23,12 +23,14 @@ class OTXProvider:
         
         self.api_key = api_key
     
-    def query_ioc(self, ioc: str, ioc_type: Literal["ip", "domain", "url", "hash"]) -> IOCResult:
+    async def query_ioc(self, ioc: str, ioc_type: Literal["ip", "domain", "url", "hash"]) -> IOCResult:
         if ioc_type == "url":
             return IOCResult(
                 ioc=ioc,
                 ioc_type=ioc_type,
                 status=IOCStatus.UNSUPPORTED,
+                malicious_engines=0,
+                total_engines=0,
                 message="URL scanning not supported by this provider"
             )
         
@@ -42,10 +44,19 @@ class OTXProvider:
         headers = {"X-OTX-API-KEY": self.api_key}
         
         try:
-            response = requests.get(url, headers=headers, timeout=5)
-            response.raise_for_status()
+            resp = await aget(url, headers=headers, timeout=5.0, api_key=self.api_key)
             
-            data = response.json()
+            if resp.status_code != 200:
+                return IOCResult(
+                    ioc=ioc,
+                    ioc_type=ioc_type,
+                    status=IOCStatus.ERROR,
+                    malicious_engines=0,
+                    total_engines=0,
+                    message=f"HTTP {resp.status_code}"
+                )
+            
+            data = resp.json()
             
             pulses = data.get("pulse_info", {}).get("pulses", [])
             pulse_count = len(pulses)
@@ -57,22 +68,18 @@ class OTXProvider:
                 ioc_type=ioc_type,
                 status=status,
                 malicious_engines=pulse_count,
-                total_engines=pulse_count
+                total_engines=pulse_count,
+                message=""
             )
             
-        except requests.exceptions.RequestException as e:
+        except Exception as e:
             return IOCResult(
                 ioc=ioc,
                 ioc_type=ioc_type,
                 status=IOCStatus.ERROR,
-                message=f"Request failed: {str(e)}"
-            )
-        except (KeyError, ValueError) as e:
-            return IOCResult(
-                ioc=ioc,
-                ioc_type=ioc_type,
-                status=IOCStatus.ERROR,
-                message=f"Failed to parse response: {str(e)}"
+                malicious_engines=0,
+                total_engines=0,
+                message=str(e)
             )
 
 

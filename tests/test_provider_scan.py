@@ -10,29 +10,41 @@ def test_scan_minimal(monkeypatch):
         NAME = "true"
         TIMEOUT = 1
 
-        def query_ioc(self, ioc_type: str, ioc_value: str) -> IOCResult:
+        async def query_ioc(self, ioc: str, ioc_type: str) -> IOCResult:
             return IOCResult(
-                ioc=ioc_value,
+                ioc=ioc,
                 ioc_type=ioc_type,
                 status=IOCStatus.MALICIOUS,
                 malicious_engines=1,
                 total_engines=1,
+                message=""
             )
 
     class DummyFalse:
         NAME = "false"
         TIMEOUT = 1
 
-        def query_ioc(self, ioc_type: str, ioc_value: str) -> IOCResult:
+        async def query_ioc(self, ioc: str, ioc_type: str) -> IOCResult:
             return IOCResult(
-                ioc=ioc_value,
+                ioc=ioc,
                 ioc_type=ioc_type,
                 status=IOCStatus.SUCCESS,
+                malicious_engines=0,
+                total_engines=1,
+                message=""
             )
 
-    monkeypatch.setattr(providers, "PROVIDERS", [DummyTrue(), DummyFalse()], raising=False)
+    monkeypatch.setattr(providers, "PROVIDERS", [DummyTrue, DummyFalse], raising=False)
 
-    results = [p.query_ioc("ip", "1.1.1.1") for p in providers.PROVIDERS]
+    # Use the actual scan_ioc function to test the full pipeline
+    import asyncio
+    from ioc_checker import scan_ioc
+    
+    async def run_test():
+        results = await scan_ioc("1.1.1.1", "ip")
+        return list(results.values())
+    
+    results = asyncio.run(run_test())
     verdict = aggregate_verdict(results)
 
     assert verdict is IOCStatus.MALICIOUS
@@ -45,30 +57,33 @@ def test_scan_partial_failure(monkeypatch):
         NAME = "flaky"
         TIMEOUT = 1
 
-        def query_ioc(self, ioc_type: str, ioc_value: str) -> IOCResult:
+        async def query_ioc(self, ioc: str, ioc_type: str) -> IOCResult:
             raise RuntimeError("API down")
 
     class Good:
         NAME = "good"
         TIMEOUT = 1
 
-        def query_ioc(self, ioc_type: str, ioc_value: str) -> IOCResult:
+        async def query_ioc(self, ioc: str, ioc_type: str) -> IOCResult:
             return IOCResult(
-                ioc=ioc_value,
+                ioc=ioc,
                 ioc_type=ioc_type,
                 status=IOCStatus.SUCCESS,
+                malicious_engines=0,
+                total_engines=1,
+                message=""
             )
 
-    monkeypatch.setattr(providers, "PROVIDERS", [Flaky(), Good()], raising=False)
+    monkeypatch.setattr(providers, "PROVIDERS", [Flaky, Good], raising=False)
 
-    results = []
-    for p in providers.PROVIDERS:
-        try:
-            results.append(p.query_ioc("ip", "8.8.8.8"))
-        except RuntimeError:
-            results.append(
-                IOCResult(ioc="8.8.8.8", ioc_type="ip", status=IOCStatus.ERROR)
-            )
-
+    # Use the actual scan_ioc function to test error handling
+    import asyncio
+    from ioc_checker import scan_ioc
+    
+    async def run_test():
+        results = await scan_ioc("8.8.8.8", "ip")
+        return list(results.values())
+    
+    results = asyncio.run(run_test())
     verdict = aggregate_verdict(results)
     assert verdict is IOCStatus.ERROR

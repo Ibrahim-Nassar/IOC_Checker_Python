@@ -1,68 +1,69 @@
-"""AbuseIPDB provider adapter implementing the unified IOCProvider protocol."""
-
+"""AbuseIPDB provider adapter for IOC Checker (async unified IOCResult)."""
 from __future__ import annotations
 
 import os
-from typing import Any, Dict
 
-from cache import session as requests
-from provider_interface import IOCResult, IOCProvider
-
-_API = "https://api.abuseipdb.com/api/v2/check"
-_KEY = os.getenv("ABUSEIPDB_API_KEY", "")
-
-_HEADERS: Dict[str, str] = {
-    "Accept": "application/json",
-    "Key": _KEY or "",
-}
-
-_PARAMS_DEFAULT: Dict[str, str] = {"maxAgeInDays": "90"}
+import httpx
+from async_cache import aget
+from ioc_types import IOCResult, IOCStatus
 
 
 class AbuseIPDBProvider:
-    """AbuseIPDB implementation conforming to IOCProvider."""
+    NAME = "abuseipdb"
 
-    NAME = "AbuseIPDB"
-    TIMEOUT = 8  # seconds
+    def __init__(self, api_key: str | None = None):
+        self._key = api_key or os.getenv("ABUSEIPDB_API_KEY")
+        if not self._key:
+            raise RuntimeError("ABUSEIPDB_API_KEY missing")
 
-    def query_ioc(self, ioc_type: str, ioc_value: str) -> IOCResult:  # type: ignore[override]
-        """Query AbuseIPDB for the given IP address and return an IOCResult."""
+    async def query_ioc(self, ioc: str, ioc_type: str) -> IOCResult:
         if ioc_type.lower() != "ip":
-            return IOCResult(status="unsupported", score=None, raw={})
+            return IOCResult(
+                ioc=ioc,
+                ioc_type=ioc_type,
+                status=IOCStatus.UNSUPPORTED,
+                malicious_engines=0,
+                total_engines=0,
+                message="Only IP addresses are supported",
+            )
 
-        if not _KEY:
-            return IOCResult(status="missing_api_key", score=None, raw={})
+        url = f"https://api.abuseipdb.com/api/v2/check?ipAddress={ioc}&maxAgeInDays=90"
+        headers = {"Key": self._key, "Accept": "application/json"}
 
-        params = dict(_PARAMS_DEFAULT, ipAddress=ioc_value)
         try:
-            resp = requests.get(_API, headers=_HEADERS, params=params, timeout=self.TIMEOUT)
-            
-            if resp.status_code == 401:
-                return IOCResult(status="invalid_api_key", score=None, raw={"status_code": 401})
-            
-            if resp.status_code == 429:
-                return IOCResult(status="quota_exceeded", score=None, raw={"status_code": 429})
-            
-            if resp.status_code == 404:
-                # Not found in DB implies clean
-                return IOCResult(status="success", score=0.0, raw={"status_code": 404})
-            
+            resp = await aget(url, headers=headers, timeout=5, api_key=self._key)
+
             if resp.status_code != 200:
                 return IOCResult(
-                    status=f"http_{resp.status_code}",
-                    score=None,
-                    raw={"status_code": resp.status_code, "text": resp.text},
+                    ioc=ioc,
+                    ioc_type=ioc_type,
+                    status=IOCStatus.ERROR,
+                    malicious_engines=0,
+                    total_engines=0,
+                    message=f"HTTP {resp.status_code}",
                 )
-            
-            data: Dict[str, Any] = resp.json().get("data", {})
-            confidence = float(data.get("abuseConfidenceScore", 0))
-            return IOCResult(status="success", score=confidence, raw=data)
-            
-        except requests.exceptions.RequestException as exc:
-            return IOCResult(status="network_error", score=None, raw={"error": str(exc)})
+
+            data = resp.json()
+            score = data["data"]["abuseConfidenceScore"]
+            status = IOCStatus.MALICIOUS if score > 0 else IOCStatus.SUCCESS
+
+            return IOCResult(
+                ioc=ioc,
+                ioc_type=ioc_type,
+                status=status,
+                malicious_engines=score,
+                total_engines=100,
+                message="",
+            )
         except Exception as exc:
-            return IOCResult(status="error", score=None, raw={"error": str(exc)})
+            return IOCResult(
+                ioc=ioc,
+                ioc_type=ioc_type,
+                status=IOCStatus.ERROR,
+                malicious_engines=0,
+                total_engines=0,
+                message=str(exc),
+            )
 
 
-# Module-level provider instance
-provider: IOCProvider = AbuseIPDBProvider()
+__all__ = ["AbuseIPDBProvider"]
