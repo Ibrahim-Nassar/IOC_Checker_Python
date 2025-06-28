@@ -44,9 +44,9 @@ def _get_client() -> httpx.AsyncClient:
         return _CLIENT_CVAR.get()
     except LookupError:
         if _HAS_CACHE and _FILE_CACHE is not None:
-            c = AsyncClient(cache=_FILE_CACHE, timeout=5.0)
+            c = AsyncClient(cache=_FILE_CACHE, timeout=15.0)
         else:
-            c = httpx.AsyncClient(timeout=5.0)
+            c = httpx.AsyncClient(timeout=15.0)
         _CLIENT_CVAR.set(c)
         return c
 
@@ -61,7 +61,7 @@ def _get_limiter(api_key: str | None) -> AsyncLimiter:
         return per_loop[key]
 
 
-async def aget(url: str, *, timeout: float = 5.0, ttl: int = 900, api_key: str | None = None, headers: dict | None = None) -> httpx.Response:
+async def aget(url: str, *, timeout: float = 15.0, ttl: int = 900, api_key: str | None = None, headers: dict | None = None) -> httpx.Response:
     """Async GET with caching and rate limiting."""
     client = _get_client()
     limiter = _get_limiter(api_key)
@@ -92,15 +92,15 @@ async def apost(url: str, json: dict, *, timeout: float = 5.0, ttl: int = 900, a
 @atexit.register
 def _close_all_clients() -> None:
     """Best effort cleanup on exit."""
+    import asyncio
     try:
-        client = _CLIENT_CVAR.get()
-        asyncio.run(client.aclose())
+        client = _CLIENT_CVAR.get(None)
     except LookupError:
-        # No client in this context
-        pass
-    except Exception:
-        # Best effort cleanup - ignore errors
-        pass
+        client = None
+    if client and not client.is_closed:
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(client.aclose())
+        loop.close()
 
 
 __all__ = ["aget", "apost"] 

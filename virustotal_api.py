@@ -6,7 +6,6 @@ from __future__ import annotations
 import os
 from typing import Literal
 
-import httpx
 from async_cache import aget
 from ioc_types import IOCResult, IOCStatus
 

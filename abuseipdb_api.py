@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 
-import httpx
 from async_cache import aget
 from ioc_types import IOCResult, IOCStatus
 
@@ -52,6 +51,7 @@ class AbuseIPDBProvider:
                 ioc_type=ioc_type,
                 status=status,
                 malicious_engines=score,
+                # AbuseIPDB returns a 0-100 confidence score, treat 100 as "all engines"
                 total_engines=100,
                 message="",
             )

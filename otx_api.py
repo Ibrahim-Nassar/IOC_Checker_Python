@@ -44,16 +44,24 @@ class OTXProvider:
         headers = {"X-OTX-API-KEY": self.api_key}
         
         try:
-            resp = await aget(url, headers=headers, timeout=5.0, api_key=self.api_key)
+            resp = await aget(url, headers=headers, timeout=15.0, api_key=self.api_key)
             
             if resp.status_code != 200:
+                error_msg = f"HTTP {resp.status_code}"
+                try:
+                    error_body = resp.text
+                    if error_body:
+                        error_msg += f": {error_body[:200]}"
+                except Exception:
+                    pass
+                
                 return IOCResult(
                     ioc=ioc,
                     ioc_type=ioc_type,
                     status=IOCStatus.ERROR,
                     malicious_engines=0,
                     total_engines=0,
-                    message=f"HTTP {resp.status_code}"
+                    message=error_msg
                 )
             
             data = resp.json()
@@ -73,13 +81,29 @@ class OTXProvider:
             )
             
         except Exception as e:
+            import traceback
+            error_type = type(e).__name__
+            
+            # Provide user-friendly error messages
+            if "timeout" in error_type.lower() or "ReadTimeout" in str(e):
+                error_detail = "Connection timeout - OTX server slow to respond"
+            elif "connection" in error_type.lower():
+                error_detail = "Network connection error"
+            elif "403" in str(e) or "401" in str(e):
+                error_detail = "API key authentication failed"
+            else:
+                error_detail = f"{error_type}: {str(e)}"
+            
+            # Add full traceback for debugging (can be removed in production)
+            traceback.print_exc()
+            
             return IOCResult(
                 ioc=ioc,
                 ioc_type=ioc_type,
                 status=IOCStatus.ERROR,
                 malicious_engines=0,
                 total_engines=0,
-                message=str(e)
+                message=error_detail
             )
 
 

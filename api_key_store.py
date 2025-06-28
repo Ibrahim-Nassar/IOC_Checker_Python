@@ -15,6 +15,7 @@ load(provider_env_var: str) -> str | None
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Dict, Optional
@@ -28,7 +29,8 @@ try:
     import keyring  # type: ignore
     from keyring.errors import KeyringError  # type: ignore
     _KEYRING_AVAILABLE = True
-except Exception:  # pragma: no cover – import failure
+except Exception as exc:  # pragma: no cover – import failure
+    logging.warning("Keyring backend unavailable: %s", exc)
     keyring = None  # type: ignore
     KeyringError = Exception  # type: ignore
     _KEYRING_AVAILABLE = False
@@ -85,7 +87,7 @@ def save(provider_env_var: str, value: str) -> None:
     """Persist an API *value* for *provider_env_var*."""
     if _KEYRING_AVAILABLE:
         try:
-            keyring.set_password(SERVICE_NAME, provider_env_var, value)
+            keyring.set_password(SERVICE_NAME, provider_env_var, value)  # type: ignore[call-arg]
             return
         except KeyringError:
             pass  # fall through to JSON fallback
@@ -102,7 +104,7 @@ def load(provider_env_var: str) -> Optional[str]:
     """Retrieve the stored value or ``None`` if not found."""
     if _KEYRING_AVAILABLE:
         try:
-            val = keyring.get_password(SERVICE_NAME, provider_env_var)
+            val = keyring.get_password(SERVICE_NAME, provider_env_var)  # type: ignore[call-arg]
             if val:
                 return val
         except KeyringError:

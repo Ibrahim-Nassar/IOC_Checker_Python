@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 
-import httpx
 from async_cache import aget
 from ioc_types import IOCResult, IOCStatus
 
@@ -11,8 +10,9 @@ from ioc_types import IOCResult, IOCStatus
 class GreyNoiseProvider:
     NAME = "greynoise"
 
-    def __init__(self, api_key: str | None = None):
+    def __init__(self, api_key: str | None = None, timeout: float = 5.0):
         self._key = api_key or os.getenv("GREYNOISE_API_KEY")
+        self._timeout = timeout
         if not self._key:
             raise RuntimeError("GREYNOISE_API_KEY missing")
 
@@ -31,7 +31,7 @@ class GreyNoiseProvider:
         headers = {"key": self._key, "Accept": "application/json"}
 
         try:
-            resp = await aget(url, headers=headers, timeout=5, api_key=self._key)
+            resp = await aget(url, headers=headers, timeout=self._timeout, api_key=self._key)
 
             if resp.status_code != 200:
                 return IOCResult(

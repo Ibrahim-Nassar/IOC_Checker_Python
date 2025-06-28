@@ -5,37 +5,40 @@ from __future__ import annotations
 
 import threading
 
-PROV_CLASSES = []
+_prov_classes = []
 
 try:
     from virustotal_api import VirusTotalProvider
-    PROV_CLASSES.append(VirusTotalProvider)
+    _prov_classes.append(VirusTotalProvider)
 except ImportError:
     pass
 
 try:
     from otx_api import OTXProvider
-    PROV_CLASSES.append(OTXProvider)
+    _prov_classes.append(OTXProvider)
 except ImportError:
     pass
 
 try:
     from abuseipdb_api import AbuseIPDBProvider
-    PROV_CLASSES.append(AbuseIPDBProvider)
+    _prov_classes.append(AbuseIPDBProvider)
 except ImportError:
     pass
 
 try:
     from threatfox_api import ThreatFoxProvider
-    PROV_CLASSES.append(ThreatFoxProvider)
+    _prov_classes.append(ThreatFoxProvider)
 except ImportError:
     pass
 
 try:
     from greynoise_api import GreyNoiseProvider
-    PROV_CLASSES.append(GreyNoiseProvider)
+    _prov_classes.append(GreyNoiseProvider)
 except ImportError:
     pass
+
+# Make PROV_CLASSES an immutable tuple
+PROV_CLASSES = tuple(_prov_classes)
 
 # Backward compatibility alias
 PROVIDERS = PROV_CLASSES
@@ -59,5 +62,9 @@ def get_providers() -> list:
                         logging.warning("%s disabled: %s", cls.__name__, exc)
     return _instances
 
+def refresh() -> None:
+    """Reset the cached provider instances, forcing re-instantiation on next get_providers() call."""
+    global _instances
+    _instances = None
 
-__all__ = ["PROV_CLASSES", "get_providers", "PROVIDERS"] 
+__all__ = ["PROV_CLASSES", "get_providers", "PROVIDERS", "refresh"] 

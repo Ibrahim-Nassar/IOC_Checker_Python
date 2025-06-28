@@ -1,7 +1,7 @@
-"""Centralised configuration for IOC Checker (API keys & globals)."""
+"""Centralised configuration for IOC Checker (API keys & globals). Requires Pydantic v2."""
 
 from pydantic import Field
-from pydantic_settings import BaseSettings
+from pydantic import BaseSettings
 
 class Settings(BaseSettings):
     VIRUSTOTAL_API_KEY: str | None = Field(default=None, env="VIRUSTOTAL_API_KEY")

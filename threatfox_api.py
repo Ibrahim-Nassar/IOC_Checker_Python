@@ -1,7 +1,6 @@
 """ThreatFox provider adapter for IOC Checker (async unified IOCResult)."""
 from __future__ import annotations
 
-import httpx
 from async_cache import apost
 from ioc_types import IOCResult, IOCStatus
 

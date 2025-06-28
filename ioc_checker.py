@@ -6,16 +6,17 @@ import asyncio
 import logging
 import os
 import sys
-from typing import Dict, Literal
+from typing import Dict, Literal, Any, cast
 
 from ioc_types import IOCResult, IOCStatus, detect_ioc_type
 import providers
 
-try:
-    sys.stdout.reconfigure(encoding="utf-8")
-    sys.stderr.reconfigure(encoding="utf-8")
-except AttributeError:
-    pass
+# ── ensure UTF-8 capable streams without upsetting Pyright ───────────────
+if hasattr(sys.stdout, "reconfigure"):   # type: ignore[attr-defined]
+    cast(Any, sys.stdout).reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):   # type: ignore[attr-defined]
+    cast(Any, sys.stderr).reconfigure(encoding="utf-8")
+# ─────────────────────────────────────────────────────────────────────────
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("ioc_checker")
@@ -77,20 +78,22 @@ async def scan_ioc(ioc: str, ioc_type: str, provider_list: list | None = None) -
     tasks = [query_single_provider(p) for p in provider_list]
     results = await asyncio.gather(*tasks, return_exceptions=True)
     
-    scan_results = {}
-    for result in results:
-        if isinstance(result, Exception):
+    scan_results: Dict[str, IOCResult] = {}
+    for item in results:
+        if isinstance(item, Exception):
             scan_results["unknown"] = IOCResult(
                 ioc=ioc,
                 ioc_type=ioc_type,
                 status=IOCStatus.ERROR,
                 malicious_engines=0,
                 total_engines=0,
-                message=str(result)
+                message=str(item)
             )
-        else:
-            provider_name, ioc_result = result
-            scan_results[provider_name] = ioc_result
+            continue
+
+        # `item` is the tuple (provider_name, IOCResult)
+        provider_name, ioc_result = item  # type: ignore[misc]
+        scan_results[provider_name] = ioc_result
     
     return scan_results
 

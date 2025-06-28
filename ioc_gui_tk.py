@@ -5,21 +5,21 @@ Simplified Tkinter GUI for IOC checking using the unified result format.
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext, filedialog
+from tkinter import ttk, messagebox, filedialog
 import asyncio
 import logging
 import os
 import sys
 import threading
-import subprocess
 import queue
 from pathlib import Path
 import functools
 
-from ioc_types import IOCStatus, IOCResult, detect_ioc_type
+from ioc_types import IOCStatus, IOCResult, detect_ioc_type, validate_ioc
 from providers import get_providers
 from ioc_checker import aggregate_verdict, scan_ioc
 from async_cache import _close_all_clients
+from api_key_store import save as save_key, load as load_key
 
 _STATUS_MAP = {
     IOCStatus.SUCCESS: "✔ Clean",
@@ -28,10 +28,11 @@ _STATUS_MAP = {
     IOCStatus.UNSUPPORTED: "— N/A",
 }
 
+# Set UTF-8 encoding for console output when available
 try:
-    sys.stdout.reconfigure(encoding="utf-8")
-    sys.stderr.reconfigure(encoding="utf-8")
-except AttributeError:
+    import locale
+    locale.setlocale(locale.LC_ALL, '')
+except (ImportError, locale.Error):
     pass
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -47,6 +48,34 @@ AVAILABLE_PROVIDERS = {
 
 _LOOP = asyncio.new_event_loop()
 threading.Thread(target=_LOOP.run_forever, daemon=True).start()
+
+# Simple tooltip class for better UX
+class ToolTip:
+    """Simple tooltip for tkinter widgets."""
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.tooltip_window = None
+        widget.bind("<Enter>", self.on_enter)
+        widget.bind("<Leave>", self.on_leave)
+    
+    def on_enter(self, event=None):
+        if self.tooltip_window:
+            return
+        x = self.widget.winfo_rootx() + 25
+        y = self.widget.winfo_rooty() + 25
+        self.tooltip_window = tk.Toplevel(self.widget)
+        self.tooltip_window.wm_overrideredirect(True)
+        self.tooltip_window.wm_geometry(f"+{x}+{y}")
+        label = tk.Label(self.tooltip_window, text=self.text, 
+                        background="lightyellow", relief="solid", borderwidth=1,
+                        font=("Arial", 8, "normal"))
+        label.pack()
+    
+    def on_leave(self, event=None):
+        if self.tooltip_window:
+            self.tooltip_window.destroy()
+            self.tooltip_window = None
 
 class IOCCheckerGUI:
     
@@ -80,6 +109,15 @@ class IOCCheckerGUI:
         self.file_var = tk.StringVar()
         self.dark_mode = tk.BooleanVar(value=False)
         
+        # Load saved API keys before any provider discovery
+        _API_VARS = ("VIRUSTOTAL_API_KEY", "OTX_API_KEY",
+                     "ABUSEIPDB_API_KEY", "GREYNOISE_API_KEY", "THREATFOX_API_KEY")
+        
+        for var in _API_VARS:
+            val = load_key(var)
+            if val:
+                os.environ[var] = val
+        
         self._create_menu()
         self._build_ui()
         self._poll_queue()
@@ -87,6 +125,7 @@ class IOCCheckerGUI:
         # Set up graceful shutdown
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
     
+
     def _on_close(self) -> None:
         """Gracefully stop the background event loop and close the GUI."""
         _LOOP.call_soon_threadsafe(_LOOP.stop)
@@ -150,14 +189,48 @@ class IOCCheckerGUI:
         results_frame = ttk.LabelFrame(main_frame, text="Results", padding=10)
         results_frame.pack(fill="both", expand=True)
         
-        self.provider_columns = ["virustotal", "abuseipdb", "otx", "threatfox", "greynoise"]
-        self.columns = ["Type", "IOC", "Verdict", "Flagged By"] + [p.title() for p in self.provider_columns]
+        # Initialize with all potential columns
+        self.base_columns = ["Type", "IOC", "Verdict", "Flagged By"]
+        self.columns = self.base_columns[:]  # Will be updated dynamically
         
         self.out = ttk.Treeview(results_frame, columns=self.columns, show="headings", height=15)
         
-        for col in self.columns:
+        # Configure base columns initially
+        for col in self.base_columns:
             self.out.heading(col, text=col)
-            self.out.column(col, width=100, minwidth=80)
+            if col in ("Type", "Verdict"):
+                self.out.column(col, anchor="center", stretch=True, minwidth=80, width=120)
+            elif col == "IOC":
+                self.out.column(col, anchor="w", stretch=True, minwidth=200, width=300)
+            elif col == "Flagged By":
+                self.out.column(col, anchor="w", stretch=True, minwidth=120, width=180)
+        
+        def _resize(event):
+            total = event.width
+            MIN_WIDTH = sum(self.out.column(c, option="minwidth") for c in self.columns)
+            if total <= MIN_WIDTH:
+                return
+            
+            active_providers = self._selected_providers()
+            provider_count = len(active_providers)
+            
+            # Proportional sizing: Type(8%), IOC(35%), Verdict(12%), Flagged By(15%), Providers(30% total)
+            type_width = int(total * 0.08)
+            ioc_width = int(total * 0.35)
+            verdict_width = int(total * 0.12)
+            flagged_width = int(total * 0.15)
+            provider_total = int(total * 0.30)
+            provider_width = provider_total // provider_count if provider_count else 80
+            
+            self.out.column("Type", width=max(type_width, 60))
+            self.out.column("IOC", width=max(ioc_width, 200))
+            self.out.column("Verdict", width=max(verdict_width, 80))
+            self.out.column("Flagged By", width=max(flagged_width, 120))
+            
+            for provider in active_providers:
+                self.out.column(provider.NAME, width=max(provider_width, 80))
+        
+        self.out.bind("<Configure>", _resize)
         
         scrollbar_v = ttk.Scrollbar(results_frame, orient="vertical", command=self.out.yview)
         scrollbar_h = ttk.Scrollbar(results_frame, orient="horizontal", command=self.out.xview)
@@ -175,104 +248,161 @@ class IOCCheckerGUI:
         
         self.progress_label = ttk.Label(status_frame, text="Ready")
         self.progress_label.pack(side="left")
+        
+    def _update_treeview_columns(self):
+        """Update treeview columns based on selected providers."""
+        active_providers = self._selected_providers()
+        self.columns = self.base_columns + [p.NAME for p in active_providers]
+        
+        # Reconfigure treeview with new columns
+        self.out.config(columns=self.columns)
+        
+        # Clear any stale columns that may exist
+        current_columns = list(self.out["columns"])
+        for col in current_columns:
+            if col not in self.columns:
+                self.out.heading(col, text="")
+                self.out.column(col, width=0, stretch=False)
+        
+        # Set up headings and column properties for all columns
+        for col in self.columns:
+            self.out.heading(col, text=col)
+            if col in ("Type", "Verdict"):
+                self.out.column(col, anchor="center", stretch=True, minwidth=80, width=120)
+            elif col == "IOC":
+                self.out.column(col, anchor="w", stretch=True, minwidth=200, width=300)
+            elif col == "Flagged By":
+                self.out.column(col, anchor="w", stretch=True, minwidth=120, width=180)
+            else:  # Provider columns
+                self.out.column(col, anchor="center", stretch=True, minwidth=80, width=120)
     
     def _show_about(self):
-        messagebox.showinfo("About", "IOC Checker GUI\nVersion 2.0\nUnified threat intelligence checking")
+        about_text = (
+            "IOC Checker GUI\n"
+            "Version 1.0\n\n"
+            "Simple interface for checking IoCs across multiple threat intelligence providers.\n\n"
+            "Features:\n"
+            "• Multi-provider IOC scanning\n"
+            "• Batch processing support\n"
+            "• Secure API key storage (keyring with JSON fallback)\n"
+            "• Real-time results display\n\n"
+            "API keys are stored securely and persist between sessions."
+        )
+        messagebox.showinfo("About", about_text)
     
     def _configure_providers(self):
+        # This would show the provider selection dialog
         self.show_providers_info()
     
     def show_providers_info(self):
-        config_win = tk.Toplevel(self.root)
-        config_win.title("Provider Configuration")
-        config_win.geometry("800x600")
-        config_win.transient(self.root)
-        config_win.grab_set()
+        """Show a dialog with information about available providers and their status."""
+        info_window = tk.Toplevel(self.root)
+        info_window.title("Provider Configuration")
+        info_window.geometry("800x600")
+        info_window.transient(self.root)
+        info_window.grab_set()
         
-        main_frame = ttk.Frame(config_win)
+        main_frame = ttk.Frame(info_window)
         main_frame.pack(fill="both", expand=True, padx=20, pady=20)
-        main_frame.grid_rowconfigure(3, weight=1)
-        main_frame.grid_columnconfigure(0, weight=1)
         
-        title_label = ttk.Label(main_frame, text="Select Threat Intelligence Providers", 
-                               font=("Arial", 14, "bold"))
-        title_label.grid(row=0, column=0, sticky="ew", pady=(0, 20))
+        title_label = ttk.Label(main_frame, text="Provider Configuration", font=("Arial", 16, "bold"))
+        title_label.pack(pady=(0, 20))
         
-        desc_label = ttk.Label(main_frame, 
-                              text="Choose which providers to use for IOC analysis. Providers require valid API keys.",
-                              font=("Arial", 10))
-        desc_label.grid(row=1, column=0, sticky="ew", pady=(0, 20))
+        # Create a treeview for provider info with checkboxes
+        tree_frame = ttk.Frame(main_frame)
+        tree_frame.pack(fill="both", expand=True, pady=(0, 20))
         
-        provider_frame = ttk.LabelFrame(main_frame, text="Available Providers", padding=10)
-        provider_frame.grid(row=2, column=0, sticky="nsew", pady=(0, 15))
+        columns = ("Provider", "Status", "Hits")
+        tree = ttk.Treeview(tree_frame, columns=columns, show="tree headings", selectmode="none")
         
-        self.provider_vars = {}
+        tree.heading("#0", text="✓", anchor="center")
+        tree.column("#0", width=50, minwidth=50, stretch=False)
         
-        for i, (provider_id, name, env_var, description, supported_types) in enumerate(self.providers_info):
-            var = tk.BooleanVar(value=self.provider_config.get(provider_id, False))
-            self.provider_vars[provider_id] = var
-            
-            api_key_available = bool(os.getenv(env_var, "").strip()) if env_var else True
-            status_text = " ✓" if api_key_available else " ✗"
-            
-            frame = ttk.Frame(provider_frame)
-            frame.pack(fill="x", pady=5, padx=5)
-            
-            checkbox = ttk.Checkbutton(frame, variable=var)
-            checkbox.pack(side="left", padx=(0, 10))
-            
-            info_frame = ttk.Frame(frame)
-            info_frame.pack(side="left", fill="x", expand=True)
-            
-            name_label = ttk.Label(info_frame, text=f"{name}{status_text}", font=("Arial", 11, "bold"))
-            name_label.pack(anchor="w")
-            
-            desc_label = ttk.Label(info_frame, text=description, font=("Arial", 9), foreground="gray")
-            desc_label.pack(anchor="w")
-            
-            types_label = ttk.Label(info_frame, text=f"Supports: {', '.join(supported_types).upper()}", 
-                                   font=("Arial", 8), foreground="blue")
-            types_label.pack(anchor="w")
-            
-            if env_var and not api_key_available:
-                checkbox.config(state="disabled")
-                key_label = ttk.Label(info_frame, text=f"API Key Required: {env_var}", 
-                                     font=("Arial", 8), foreground="red")
-                key_label.pack(anchor="w")
+        for col in columns:
+            tree.heading(col, text=col)
+            tree.column(col, anchor="w" if col == "Provider" else "center")
         
-        btn_frame = ttk.Frame(main_frame)
-        btn_frame.grid(row=3, column=0, sticky="ew")
+        def _resize(event):
+            total = event.width
+            MIN_WIDTH = sum(tree.column(c, option="minwidth") for c in ("Provider", "Status", "Hits"))
+            if total <= MIN_WIDTH:
+                return
+            widths = (0.4, 0.3, 0.3)  # Provider, Status, Hits
+            for col, frac in zip(("Provider", "Status", "Hits"), widths):
+                tree.column(col, width=int(total * frac))
+        
+        tree.bind("<Configure>", _resize)
+        
+        # Scrollbars for the tree
+        tree_scroll_v = ttk.Scrollbar(tree_frame, orient="vertical", command=tree.yview)
+        tree_scroll_h = ttk.Scrollbar(tree_frame, orient="horizontal", command=tree.xview)
+        tree.configure(yscrollcommand=tree_scroll_v.set, xscrollcommand=tree_scroll_h.set)
+        
+        tree.grid(row=0, column=0, sticky="nsew")
+        tree_scroll_v.grid(row=0, column=1, sticky="ns")
+        tree_scroll_h.grid(row=1, column=0, sticky="ew")
+        
+        tree_frame.grid_rowconfigure(0, weight=1)
+        tree_frame.grid_columnconfigure(0, weight=1)
+        
+        # Populate tree with provider info
+        provider_items = {}
+        for provider_id, name, env_var, description, supported_types in self.providers_info:
+            api_key = os.getenv(env_var, "")
+            status = "Configured" if api_key else "No API Key"
+            
+            supported_text = ", ".join(supported_types)
+            checkbox_text = "☑" if self.provider_config.get(provider_id, False) else "☐"
+            
+            item_id = tree.insert("", "end", text=checkbox_text, values=(name, status, supported_text))
+            provider_items[item_id] = provider_id
+        
+        def on_tree_click(event):
+            item = tree.identify("item", event.x, event.y)
+            if item and item in provider_items:
+                provider_id = provider_items[item]
+                current_state = self.provider_config.get(provider_id, False)
+                new_state = not current_state
+                self.provider_config[provider_id] = new_state
+                
+                checkbox_text = "☑" if new_state else "☐"
+                tree.item(item, text=checkbox_text)
+        
+        tree.bind("<Button-1>", on_tree_click)
+        
+        # Buttons frame
+        buttons_frame = ttk.Frame(main_frame)
+        buttons_frame.pack(fill="x")
         
         def save_selection():
-            for provider_id, var in self.provider_vars.items():
-                self.provider_config[provider_id] = var.get()
-            config_win.destroy()
+            try:
+                self._update_treeview_columns()  # Update columns when providers change
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to update provider columns: {str(e)}")
+            finally:
+                info_window.destroy()  # Always close dialog
         
         def select_all():
-            for provider_id, var in self.provider_vars.items():
-                provider_info = next((p for p in self.providers_info if p[0] == provider_id), None)
-                if provider_info:
-                    env_var = provider_info[2]
-                    if env_var is None or os.getenv(env_var, "").strip():
-                        var.set(True)
+            for item_id, provider_id in provider_items.items():
+                self.provider_config[provider_id] = True
+                tree.item(item_id, text="☑")
         
         def clear_all():
-            for var in self.provider_vars.values():
-                var.set(False)
+            for item_id, provider_id in provider_items.items():
+                self.provider_config[provider_id] = False
+                tree.item(item_id, text="☐")
         
-        ttk.Button(btn_frame, text="Select All", command=select_all).pack(side="left", padx=(0, 10))
-        ttk.Button(btn_frame, text="Clear All", command=clear_all).pack(side="left", padx=(0, 10))
-        ttk.Button(btn_frame, text="Cancel", command=config_win.destroy).pack(side="right", padx=(10, 0))
-        ttk.Button(btn_frame, text="Save", command=save_selection).pack(side="right")
+        ttk.Button(buttons_frame, text="Select All", command=select_all).pack(side="left")
+        ttk.Button(buttons_frame, text="Clear All", command=clear_all).pack(side="left", padx=(10, 0))
+        ttk.Button(buttons_frame, text="Cancel", command=info_window.destroy).pack(side="right")
+        ttk.Button(buttons_frame, text="Save", command=save_selection).pack(side="right", padx=(0, 10))
     
     def _browse(self):
         filename = filedialog.askopenfilename(
             title="Select IOC file",
             filetypes=[
-                ("All supported", "*.csv;*.txt;*.xlsx"),
-                ("CSV files", "*.csv"),
                 ("Text files", "*.txt"),
-                ("Excel files", "*.xlsx"),
+                ("CSV files", "*.csv"),
                 ("All files", "*.*")
             ]
         )
@@ -280,12 +410,33 @@ class IOCCheckerGUI:
             self.file_var.set(filename)
     
     def _clear(self):
-        self.out.delete(*self.out.get_children())
-        self.all_results = []
+        for item in self.out.get_children():
+            self.out.delete(item)
+        self.all_results.clear()
     
-    def _selected_providers(self):
-        providers = get_providers()
-        return [p for p in providers if self.provider_config.get(p.NAME.lower(), False)]
+    def _selected_providers(self) -> list:
+        from providers import get_providers, refresh
+        # re-evaluate providers in case API keys changed
+        refresh()
+        all_prov = {p.NAME.lower(): p for p in get_providers()}
+
+        chosen = []
+        missing = []
+        for prov_id, enabled in self.provider_config.items():
+            if enabled:
+                if prov_id in all_prov:
+                    chosen.append(all_prov[prov_id])
+                else:
+                    missing.append(prov_id)
+
+        if missing:
+            missing_str = ", ".join(missing)
+            messagebox.showwarning(
+                "Provider unavailable",
+                f"The following providers are unavailable (missing API key): {missing_str}"
+            )
+
+        return chosen
     
     def _start_single(self, *args):
         ioc_value = self.ioc_var.get().strip()
@@ -294,24 +445,38 @@ class IOCCheckerGUI:
             return
         
         ioc_type = self.type_var.get()
-        if ioc_type == "auto":
-            detected_type, normalized_ioc = detect_ioc_type(ioc_value)
-            if detected_type == "unknown":
-                messagebox.showerror("Error", f"Could not auto-detect IOC type for: {ioc_value}")
-                return
-            ioc_type = detected_type
-            ioc_value = normalized_ioc
+        
+        # Validate the IOC using the new validation function
+        is_valid, detected_type, normalized_ioc, error_message = validate_ioc(
+            ioc_value, 
+            expected_type=None if ioc_type == "auto" else ioc_type
+        )
+        
+        if not is_valid:
+            messagebox.showerror("Invalid IOC", error_message)
+            return
+        
+        # Use the validated and normalized values
+        ioc_type = detected_type
+        ioc_value = normalized_ioc
         
         if not self._prompt_provider_selection_if_needed():
             return
         
+        # Update columns before processing
+        self._update_treeview_columns()
         self._clear()
         
-        placeholder = self.out.insert('', 'end', values=(ioc_type, ioc_value, "Processing...", ""))
+        selected_providers = self._selected_providers()
+        if not selected_providers:
+            messagebox.showerror("Error", "No valid providers available for scanning.")
+            return
+        
+        placeholder = self.out.insert('', 'end', values=tuple([ioc_type, ioc_value, "Processing...", ""] + [""] * len(selected_providers)))
         self.root.update()
         
         future = asyncio.run_coroutine_threadsafe(
-            scan_ioc(ioc_value, ioc_type), _LOOP
+            scan_ioc(ioc_value, ioc_type, selected_providers), _LOOP
         )
         future.add_done_callback(
             functools.partial(self._on_scan_done, ioc_value, ioc_type, placeholder)
@@ -326,37 +491,43 @@ class IOCCheckerGUI:
             self.root.after(0, lambda: self.update_table({}, ioc, ioc_type, placeholder, error_msg))
     
     def update_table(self, results, ioc, ioc_type, placeholder=None, error_msg=None):
+        active_providers = self._selected_providers()
+        
         if error_msg:
-            row_values = (ioc_type, ioc, "Error", error_msg) + tuple("" for _ in self.provider_columns)
+            row_values = [ioc_type, ioc, "Error", error_msg] + [""] * len(active_providers)
         else:
             overall_verdict = aggregate_verdict(list(results.values()))
             flagged_providers = [name for name, result in results.items() 
                                if result.status == IOCStatus.MALICIOUS]
             
             provider_values = []
-            for col in self.provider_columns:
-                if col in results:
-                    result = results[col]
-                    status_text = _STATUS_MAP.get(result.status, result.status.name)
+            for provider in active_providers:
+                provider_name = provider.NAME.lower()
+                if provider_name in results:
+                    result = results[provider_name]
+                    status_text = _STATUS_MAP.get(result.status, result.status.name) or "Unknown"
                     if result.malicious_engines and result.total_engines:
                         status_text += f" ({result.malicious_engines}/{result.total_engines})"
+                    # Show error message for ERROR status
+                    if result.status == IOCStatus.ERROR and result.message:
+                        status_text += f" - {result.message[:50]}..."
                     provider_values.append(status_text)
                 else:
                     provider_values.append("")
             
-            row_values = (
+            row_values = [
                 ioc_type,
                 ioc,
-                _STATUS_MAP.get(overall_verdict, overall_verdict.name),
+                _STATUS_MAP.get(overall_verdict, overall_verdict.name) or "Unknown",
                 ", ".join(flagged_providers)
-            ) + tuple(provider_values)
+            ] + provider_values
         
         if placeholder and self.out.exists(placeholder):
-            self.out.item(placeholder, values=row_values)
+            self.out.item(placeholder, values=tuple(row_values))
         else:
-            self.out.insert("", "end", values=row_values)
+            self.out.insert("", "end", values=tuple(row_values))
         
-        self.all_results.append(row_values)
+        self.all_results.append(tuple(row_values))
     
     def _start_batch(self):
         filename = self.file_var.get().strip()
@@ -372,7 +543,14 @@ class IOCCheckerGUI:
         if not self._prompt_provider_selection_if_needed():
             return
         
+        # Update columns before processing
+        self._update_treeview_columns()
         self._clear()
+        
+        selected_providers = self._selected_providers()
+        if not selected_providers:
+            messagebox.showerror("Error", "No valid providers available for scanning.")
+            return
         
         try:
             from loader import load_iocs
@@ -381,21 +559,36 @@ class IOCCheckerGUI:
                 messagebox.showerror("Error", "No IOCs found in file.")
                 return
             
-            self.out.insert('', 'end', values=("Batch", filename, f"Processing {len(iocs)} IOCs...", ""))
+            processing_values = ["Batch", filename, f"Processing {len(iocs)} IOCs...", ""] + [""] * len(selected_providers)
+            self.out.insert('', 'end', values=tuple(processing_values))
             self.root.update()
             
             async def process_batch():
+                valid_count = 0
+                invalid_count = 0
+                
                 for ioc_data in iocs:
                     ioc_value = ioc_data.get('value', str(ioc_data))
-                    ioc_type, normalized_ioc = detect_ioc_type(ioc_value)
                     
-                    if ioc_type != "unknown":
-                        results = await scan_ioc(normalized_ioc, ioc_type)
+                    # Validate each IOC before processing
+                    is_valid, ioc_type, normalized_ioc, error_message = validate_ioc(ioc_value)
+                    
+                    if is_valid:
+                        valid_count += 1
+                        results = await scan_ioc(normalized_ioc, ioc_type, selected_providers)
                         self.root.after(0, lambda r=results, i=normalized_ioc, t=ioc_type: 
                                       self.update_table(r, i, t))
+                    else:
+                        invalid_count += 1
+                        # Add invalid IOC to results table with error message
+                        self.root.after(0, lambda val=ioc_value, err=error_message: 
+                                      self.update_table({}, val, "invalid", None, f"Validation Error: {err}"))
                 
-                self.root.after(0, lambda: messagebox.showinfo("Batch Complete", 
-                                                              f"Successfully processed {len(iocs)} IOCs."))
+                summary_message = f"Batch processing complete!\n\nValid IOCs processed: {valid_count}\nInvalid IOCs skipped: {invalid_count}\nTotal: {len(iocs)}"
+                if invalid_count > 0:
+                    summary_message += f"\n\nInvalid IOCs are shown in the results table with error details."
+                
+                self.root.after(0, lambda: messagebox.showinfo("Batch Complete", summary_message))
             
             future = asyncio.run_coroutine_threadsafe(process_batch(), _LOOP)
             
@@ -405,7 +598,7 @@ class IOCCheckerGUI:
     def _configure_api_keys(self):
         config_win = tk.Toplevel(self.root)
         config_win.title("API Key Configuration")
-        config_win.geometry("600x400")
+        config_win.geometry("650x400")
         config_win.transient(self.root)
         config_win.grab_set()
         
@@ -415,38 +608,88 @@ class IOCCheckerGUI:
         ttk.Label(main_frame, text="Configure API Keys", font=("Arial", 14, "bold")).pack(pady=(0, 20))
         
         entries = {}
+        eye_buttons = {}
+        
         for provider_id, name, env_var, _, _ in self.providers_info:
             frame = ttk.Frame(main_frame)
             frame.pack(fill="x", pady=5)
             
+            # Provider label
             ttk.Label(frame, text=f"{name} ({env_var}):", width=25).pack(side="left")
+            
+            # Entry field for API key
             entry = ttk.Entry(frame, show="*", width=40)
-            entry.pack(side="left", fill="x", expand=True, padx=(10, 0))
-            entry.insert(0, os.getenv(env_var, ""))
+            entry.pack(side="left", fill="x", expand=True, padx=(10, 5))
+            
+            # Eye toggle button
+            eye_button = ttk.Button(frame, text="👁", width=3)
+            eye_button.pack(side="right")
+            
+            # Load saved key or fall back to environment variable
+            saved_key = load_key(env_var) or os.getenv(env_var, "")
+            entry.insert(0, saved_key)
+            
+            # Store references
             entries[env_var] = entry
+            eye_buttons[env_var] = eye_button
+            
+            # Create toggle function for this specific entry
+            def create_toggle_function(entry_widget, button_widget):
+                def toggle_visibility():
+                    if entry_widget['show'] == '*':
+                        entry_widget.config(show='')
+                        button_widget.config(text="🙈")  # hide icon
+                    else:
+                        entry_widget.config(show='*')
+                        button_widget.config(text="👁")   # show icon
+                return toggle_visibility
+            
+            # Bind the toggle function to the button
+            eye_button.config(command=create_toggle_function(entry, eye_button))
+            
+            # Add tooltip to the eye button
+            ToolTip(eye_button, "Click to show/hide API key")
+        
+        # Add instruction text
+        instruction_frame = ttk.Frame(main_frame)
+        instruction_frame.pack(fill="x", pady=(10, 0))
+        instruction_text = ttk.Label(
+            instruction_frame, 
+            text="💡 Click the eye button (👁) to show/hide API keys • Leave blank to remove a key",
+            font=("Arial", 9),
+            foreground="gray"
+        )
+        instruction_text.pack()
         
         buttons_frame = ttk.Frame(main_frame)
         buttons_frame.pack(fill="x", pady=(20, 0))
         
         def save_keys():
-            for env_var, entry in entries.items():
-                value = entry.get().strip()
-                if value:
-                    os.environ[env_var] = value
-                elif env_var in os.environ:
-                    del os.environ[env_var]
-            messagebox.showinfo("Success", "API keys saved to current session.")
+            from providers import refresh
+            for var, entry in entries.items():
+                val = entry.get().strip()
+                if val:
+                    save_key(var, val)
+                    os.environ[var] = val
+                else:                    # allow clearing
+                    save_key(var, "")
+                    os.environ.pop(var, None)
+            
+            # Refresh providers after API key changes
+            refresh()
+            messagebox.showinfo("Success", "API keys saved securely and will be remembered for future sessions.")
             config_win.destroy()
         
         ttk.Button(buttons_frame, text="Cancel", command=config_win.destroy).pack(side="right", padx=(5, 0))
         ttk.Button(buttons_frame, text="Save", command=save_keys).pack(side="right")
     
     def _prompt_provider_selection_if_needed(self):
-        if not any(self.provider_config.values()):
+        selected_providers = self._selected_providers()
+        if not selected_providers:
             messagebox.showwarning("No Providers Selected", 
                                  "Please configure at least one provider in Tools > Configure Providers.")
             self._configure_providers()
-            return any(self.provider_config.values())
+            return len(self._selected_providers()) > 0
         return True
     
     def _refresh_display(self):
@@ -486,35 +729,8 @@ class IOCCheckerGUI:
 
 
 def run_gui():
-    """Main entry point for the GUI application."""
-    try:
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        )
-        
-        app = IOCCheckerGUI()
-        app.run()
-        
-    except Exception as e:
-        print(f"Failed to start GUI: {e}")
-        import traceback
-        traceback.print_exc()
-        
-        try:
-            root = tk.Tk()
-            root.withdraw()
-            messagebox.showerror("Startup Error", 
-                               f"Failed to start IOC Checker GUI:\n\n{e}\n\n"
-                               "Please check the console for more details.")
-            root.destroy()
-        except:
-            pass
-        
-        sys.exit(1)
-
-
-__all__ = ["run_gui"]
+    app = IOCCheckerGUI()
+    app.run()
 
 
 if __name__ == "__main__":
