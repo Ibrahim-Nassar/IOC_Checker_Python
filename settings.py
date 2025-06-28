@@ -1,3 +1,4 @@
+# pyright: reportMissingImports=false
 """Centralised configuration for IOC Checker (API keys & globals). Requires Pydantic v2."""
 
 from pydantic import Field

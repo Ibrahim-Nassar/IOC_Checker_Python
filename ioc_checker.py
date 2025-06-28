@@ -154,7 +154,12 @@ def main() -> None:
         results = await scan_ioc(normalized_ioc, ioc_type, provider_instances)
         
         for provider_name, result in results.items():
-            print(f"{provider_name}: {result.status.name} (mal {result.malicious_engines}/{result.total_engines})")
+            status_txt = (
+                result.status.name          # IOCStatus
+                if isinstance(result.status, IOCStatus)
+                else str(result.status)     # raw string fallback
+            )
+            print(f"{provider_name}: {status_txt} (mal {result.malicious_engines}/{result.total_engines})")
         
         overall_verdict = aggregate_verdict(list(results.values()))
         print(f"\nOVERALL: {overall_verdict.name}")
