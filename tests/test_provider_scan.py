@@ -34,7 +34,9 @@ def test_scan_minimal(monkeypatch):
                 message=""
             )
 
-    monkeypatch.setattr(providers, "PROVIDERS", [DummyTrue, DummyFalse], raising=False)
+    # Mock get_providers() to return instances instead of classes
+    dummy_providers = [DummyTrue(), DummyFalse()]
+    monkeypatch.setattr(providers, "get_providers", lambda: dummy_providers)
 
     # Use the actual scan_ioc function to test the full pipeline
     import asyncio
@@ -74,7 +76,9 @@ def test_scan_partial_failure(monkeypatch):
                 message=""
             )
 
-    monkeypatch.setattr(providers, "PROVIDERS", [Flaky, Good], raising=False)
+    # Mock get_providers() to return instances instead of classes
+    dummy_providers = [Flaky(), Good()]
+    monkeypatch.setattr(providers, "get_providers", lambda: dummy_providers)
 
     # Use the actual scan_ioc function to test error handling
     import asyncio

@@ -1,13 +1,13 @@
+"""
+Standalone synchronous HTTP helper with caching and retries.
+"""
 from __future__ import annotations
 
+import threading
 import requests
 import requests_cache
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
-
-"""
-Single authoritative HTTP helper with caching and retries.
-"""
 
 _retry_config = Retry(
     total=3,
@@ -23,13 +23,17 @@ _SESSION = requests_cache.CachedSession(
 _SESSION.mount('http://', HTTPAdapter(max_retries=_retry_config))
 _SESSION.mount('https://', HTTPAdapter(max_retries=_retry_config))
 
+_SESSION_LOCK = threading.Lock()
+
 
 def get(url: str, *, timeout: float = 5.0, ttl: int = 900) -> requests.Response:
-    return _SESSION.get(url, timeout=timeout, expire_after=ttl)
+    with _SESSION_LOCK:
+        return _SESSION.get(url, timeout=timeout, expire_after=ttl)
 
 
 def post(url: str, json: dict, *, timeout: float = 5.0, ttl: int = 900) -> requests.Response:
-    return _SESSION.post(url, json=json, timeout=timeout, expire_after=ttl)
+    with _SESSION_LOCK:
+        return _SESSION.post(url, json=json, timeout=timeout, expire_after=ttl)
 
 
 __all__ = ["get", "post"] 

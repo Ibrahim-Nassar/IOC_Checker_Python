@@ -19,6 +19,7 @@ import functools
 from ioc_types import IOCStatus, IOCResult, detect_ioc_type
 from providers import get_providers
 from ioc_checker import aggregate_verdict, scan_ioc
+from async_cache import _close_all_clients
 
 _STATUS_MAP = {
     IOCStatus.SUCCESS: "✔ Clean",
@@ -82,6 +83,15 @@ class IOCCheckerGUI:
         self._create_menu()
         self._build_ui()
         self._poll_queue()
+        
+        # Set up graceful shutdown
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+    
+    def _on_close(self) -> None:
+        """Gracefully stop the background event loop and close the GUI."""
+        _LOOP.call_soon_threadsafe(_LOOP.stop)
+        _close_all_clients()
+        self.root.destroy()
     
     def _create_menu(self):
         menubar = tk.Menu(self.root)

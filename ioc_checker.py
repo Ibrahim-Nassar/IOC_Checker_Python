@@ -36,11 +36,11 @@ def aggregate_verdict(results: list[IOCResult]) -> IOCStatus:
 async def scan_ioc(ioc: str, ioc_type: str, provider_list: list | None = None) -> Dict[str, IOCResult]:
     """Scan IOC across multiple providers concurrently."""
     if provider_list is None:
-        provider_list = providers.PROVIDERS
+        from providers import get_providers
+        provider_list = get_providers()
 
-    async def query_single_provider(provider_cls):
+    async def query_single_provider(provider):
         try:
-            provider = provider_cls()
             if hasattr(provider, 'query_ioc'):
                 result = await provider.query_ioc(ioc, ioc_type)
                 if isinstance(result, IOCResult):
@@ -64,7 +64,7 @@ async def scan_ioc(ioc: str, ioc_type: str, provider_list: list | None = None) -
                     message="Provider does not support async query interface"
                 )
         except Exception as e:
-            provider_name = getattr(provider_cls, 'NAME', 'unknown')
+            provider_name = getattr(provider, 'NAME', 'unknown')
             return provider_name, IOCResult(
                 ioc=ioc,
                 ioc_type=ioc_type,
@@ -74,7 +74,7 @@ async def scan_ioc(ioc: str, ioc_type: str, provider_list: list | None = None) -
                 message=str(e)
             )
 
-    tasks = [query_single_provider(provider_cls) for provider_cls in provider_list]
+    tasks = [query_single_provider(p) for p in provider_list]
     results = await asyncio.gather(*tasks, return_exceptions=True)
     
     scan_results = {}
@@ -97,7 +97,8 @@ async def scan_ioc(ioc: str, ioc_type: str, provider_list: list | None = None) -
 
 def scan_ioc_sync(ioc: str, ioc_type: str) -> Dict[str, IOCResult]:
     """Sync wrapper for GUI/CLI convenience."""
-    return asyncio.run(scan_ioc(ioc, ioc_type, providers.PROVIDERS))
+    from providers import get_providers
+    return asyncio.run(scan_ioc(ioc, ioc_type, get_providers()))
 
 
 def main() -> None:
@@ -122,21 +123,23 @@ def main() -> None:
             parser.error(f"Could not auto-detect IOC type for: {args.ioc}")
         ioc_type = detected_type
     
-    # Build name→class mapping from available providers
+    # Get cached provider instances and build name→instance mapping
+    from providers import get_providers
+    all_providers = get_providers()
     provider_map = {}
-    for provider_cls in providers.PROV_CLASSES:
+    for provider in all_providers:
         try:
-            provider_map[provider_cls.NAME.lower()] = provider_cls
+            provider_map[provider.NAME.lower()] = provider
         except AttributeError:
             continue
     
-    provider_classes = None
+    provider_instances = None
     if args.providers:
         provider_names = [p.strip().lower() for p in args.providers.split(",")]
-        provider_classes = []
+        provider_instances = []
         for name in provider_names:
             if name in provider_map:
-                provider_classes.append(provider_map[name])
+                provider_instances.append(provider_map[name])
             else:
                 available = ", ".join(provider_map.keys())
                 parser.error(f"Unknown provider '{name}'. Available: {available}")
@@ -145,7 +148,7 @@ def main() -> None:
         print(f"\nChecking IOC: {normalized_ioc} (type: {ioc_type})")
         print("-" * 60)
         
-        results = await scan_ioc(normalized_ioc, ioc_type, provider_classes)
+        results = await scan_ioc(normalized_ioc, ioc_type, provider_instances)
         
         for provider_name, result in results.items():
             print(f"{provider_name}: {result.status.name} (mal {result.malicious_engines}/{result.total_engines})")

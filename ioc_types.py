@@ -58,12 +58,12 @@ _RE_ASN = re.compile(r"AS\d{1,10}")
 _RE_ATTCK = re.compile(r"^T\d{4}")
 
 _VALID_TLDS = {
-    'com', 'org', 'net', 'edu', 'gov', 'mil', 'int', 'io', 'co', 'ch', 'de', 'uk', 'fr', 'it', 'es', 'pl', 'nl', 'be', 'se', 'no', 'dk', 'fi', 'pt', 'gr', 'at', 'cz', 'hu', 'ro', 'bg', 'hr', 'si', 'sk', 'lt', 'lv', 'ee', 'mt', 'lu', 'cy', 'ie', 'is', 'li', 'mc', 'sm', 'va', 'ad', 'ru', 'ua', 'by', 'md', 'ge', 'am', 'az', 'kz', 'kg', 'tj', 'tm', 'uz', 'cn', 'jp', 'kr', 'tw', 'hk', 'mo', 'sg', 'my', 'th', 'vn', 'ph', 'id', 'in', 'pk', 'bd', 'lk', 'np', 'bt', 'mv', 'af', 'ir', 'iq', 'sy', 'lb', 'jo', 'ps', 'il', 'tr', 'cy', 'eg', 'ly', 'tn', 'dz', 'ma', 'sd', 'so', 'et', 'ke', 'tz', 'ug', 'rw', 'bi', 'mw', 'zm', 'zw', 'bw', 'na', 'sz', 'ls', 'mg', 'mu', 'sc', 'km', 'dj', 'er', 'cf', 'td', 'cm', 'gq', 'ga', 'cg', 'cd', 'ao', 'st', 'gh', 'tg', 'bj', 'ne', 'bf', 'ml', 'sn', 'gm', 'gw', 'cv', 'sl', 'lr', 'ci', 'gn', 'mr', 'eh', 'us', 'ca', 'mx', 'gt', 'bz', 'sv', 'hn', 'ni', 'cr', 'pa', 'cu', 'do', 'ht', 'jm', 'tt', 'bb', 'gd', 'vc', 'lc', 'dm', 'ag', 'kn', 'ms', 'ai', 'vg', 'vi', 'pr', 'br', 'ar', 'uy', 'py', 'bo', 'pe', 'ec', 'co', 've', 'gy', 'sr', 'gf', 'fk', 'gs', 'au', 'nz', 'pg', 'sb', 'vu', 'nc', 'pf', 'wf', 'ws', 'to', 'tv', 'nu', 'ck', 'ki', 'pw', 'fm', 'mh', 'nr', 'um', 'mp', 'gu', 'as', 'cc', 'cx', 'nf', 'hm', 'aq', 'tf', 'bv', 'sj', 'gl', 'fo', 'ax', 'info', 'biz', 'name', 'pro', 'museum', 'coop', 'aero', 'jobs', 'mobi', 'travel', 'xxx', 'cat', 'tel', 'asia', 'post', 'arpa', 'local', 'localhost', 'test', 'example', 'invalid', 'onion', 'exit', 'i2p'
+    'com', 'org', 'net', 'edu', 'gov', 'mil', 'int', 'io', 'co', 'ch', 'de', 'uk', 'fr', 'it', 'es', 'pl', 'nl', 'be', 'se', 'no', 'dk', 'fi', 'pt', 'gr', 'at', 'cz', 'hu', 'ro', 'bg', 'hr', 'si', 'sk', 'lt', 'lv', 'ee', 'mt', 'lu', 'cy', 'ie', 'is', 'li', 'mc', 'sm', 'va', 'ad', 'ru', 'ua', 'by', 'md', 'ge', 'am', 'az', 'kz', 'kg', 'tj', 'tm', 'uz', 'cn', 'jp', 'kr', 'tw', 'hk', 'mo', 'sg', 'my', 'th', 'vn', 'ph', 'id', 'in', 'pk', 'bd', 'lk', 'np', 'bt', 'mv', 'af', 'ir', 'iq', 'sy', 'lb', 'jo', 'ps', 'il', 'tr', 'eg', 'ly', 'tn', 'dz', 'ma', 'sd', 'so', 'et', 'ke', 'tz', 'ug', 'rw', 'bi', 'mw', 'zm', 'zw', 'bw', 'na', 'sz', 'ls', 'mg', 'mu', 'sc', 'km', 'dj', 'er', 'cf', 'td', 'cm', 'gq', 'ga', 'cg', 'cd', 'ao', 'st', 'gh', 'tg', 'bj', 'ne', 'bf', 'ml', 'sn', 'gm', 'gw', 'cv', 'sl', 'lr', 'ci', 'gn', 'mr', 'eh', 'us', 'ca', 'mx', 'gt', 'bz', 'sv', 'hn', 'ni', 'cr', 'pa', 'cu', 'do', 'ht', 'jm', 'tt', 'bb', 'gd', 'vc', 'lc', 'dm', 'ag', 'kn', 'ms', 'ai', 'vg', 'vi', 'pr', 'br', 'ar', 'uy', 'py', 'bo', 'pe', 'ec', 'co', 've', 'gy', 'sr', 'gf', 'fk', 'gs', 'au', 'nz', 'pg', 'sb', 'vu', 'nc', 'pf', 'wf', 'ws', 'to', 'tv', 'nu', 'ck', 'ki', 'pw', 'fm', 'mh', 'nr', 'um', 'mp', 'gu', 'as', 'cc', 'cx', 'nf', 'hm', 'aq', 'tf', 'bv', 'sj', 'gl', 'fo', 'ax', 'info', 'biz', 'name', 'pro', 'museum', 'coop', 'aero', 'jobs', 'mobi', 'travel', 'xxx', 'cat', 'tel', 'asia', 'post', 'arpa', 'local', 'localhost', 'test', 'example', 'invalid', 'onion', 'exit', 'i2p'
 }
 
-# Common file extensions that should not be considered domains
+# Common file extensions that should not be considered domains (removed 'com' which is a valid TLD)
 _FILE_EXTENSIONS = {
-    'exe', 'dll', 'sys', 'bat', 'cmd', 'com', 'scr', 'pif', 'vbs', 'vbe', 'js', 'jar', 'class', 'py', 'pl', 'rb', 'sh', 'ps1',
+    'exe', 'dll', 'sys', 'bat', 'cmd', 'scr', 'pif', 'vbs', 'vbe', 'js', 'jar', 'class', 'py', 'pl', 'rb', 'sh', 'ps1',
     'txt', 'doc', 'docx', 'pdf', 'rtf', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp',
     'jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff', 'svg', 'ico', 'webp',
     'mp3', 'wav', 'flac', 'aac', 'ogg', 'wma', 'm4a',
@@ -94,6 +94,7 @@ def _strip_port(v:str)->str:
 def _valid_ip(v:str)->bool:
     try: ipaddress.ip_address(_extract_ip(v)); return True
     except ValueError: return False
+
 def _valid_domain(v:str)->bool:  
     # First check basic regex pattern
     if not _RE_DOMAIN.fullmatch(v):
@@ -107,7 +108,9 @@ def _valid_domain(v:str)->bool:
     tld = parts[-1]
     
     # Check if it's a file extension masquerading as a domain
-    if tld in _FILE_EXTENSIONS:
+    # Only reject if the entire string looks like a filename (not a proper FQDN)
+    if tld in _FILE_EXTENSIONS and len(parts) == 2 and len(parts[0]) <= 32:
+        # This looks more like a filename than a domain (e.g., "document.pdf")
         return False
     
     # Check if it matches malware family patterns
@@ -127,6 +130,7 @@ def _valid_domain(v:str)->bool:
             return False
     
     return True
+
 def _valid_url(v:str)->bool:
     p=urllib.parse.urlparse(v)
     return p.scheme in ("http","https","ftp","ftps") and bool(p.netloc)
