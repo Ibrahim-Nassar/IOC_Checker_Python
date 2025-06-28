@@ -1,3 +1,4 @@
+# pyright: reportMissingImports=false, reportRedeclaration=false
 """IOC types and result objects for the IOC Checker project.
 
 # pyright: reportMissingImports=false, reportRedeclaration=false
