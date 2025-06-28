@@ -3,6 +3,11 @@ import tkinter as tk
 import inspect
 import asyncio
 import pathlib, sys, os
+import warnings
+
+# Suppress warnings for unawaited coroutines in mock objects and test scenarios
+warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*coroutine.*never awaited.*")
+warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*unawaited coroutine.*")
 
 # ---------------------------------------------------------------------------
 # Fixture: gui

@@ -38,3 +38,16 @@ line-length = 120
 
 [tool.mypy]
 strict = true
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+filterwarnings = [
+    "ignore::RuntimeWarning:unittest.mock",
+    "ignore::RuntimeWarning:unittest",
+    "ignore:.*coroutine.*never awaited.*:RuntimeWarning",
+    "ignore:.*unawaited coroutine.*:RuntimeWarning"
+]
