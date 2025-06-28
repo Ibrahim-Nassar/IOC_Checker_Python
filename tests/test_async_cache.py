@@ -2,7 +2,9 @@ import asyncio
 import pytest
 import async_cache
 
-@pytest.mark.asyncio
+pytestmark = pytest.mark.asyncio
+
+
 async def test_cache_roundtrip(monkeypatch):
     """aget should mark second response as coming from cache."""
     async def _fake_get(url, *, timeout=5.0, ttl=900, api_key=None, headers=None):

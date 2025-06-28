@@ -47,7 +47,8 @@ AVAILABLE_PROVIDERS = {
 }
 
 _LOOP = asyncio.new_event_loop()
-threading.Thread(target=_LOOP.run_forever, daemon=True).start()
+_LOOP_THREAD = threading.Thread(target=_LOOP.run_forever, daemon=True)
+_LOOP_THREAD.start()
 
 # Simple tooltip class for better UX
 class ToolTip:
@@ -130,6 +131,11 @@ class IOCCheckerGUI:
         """Gracefully stop the background event loop and close the GUI."""
         _LOOP.call_soon_threadsafe(_LOOP.stop)
         _close_all_clients()
+        # Wait briefly for loop to stop
+        try:
+            _LOOP_THREAD.join(timeout=1.0)
+        except:
+            pass  # Best effort cleanup
         self.root.destroy()
     
     def _create_menu(self):

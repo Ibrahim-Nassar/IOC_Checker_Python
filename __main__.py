@@ -11,8 +11,10 @@ This allows running the package with:
 import sys
 import os
 
-# Add the IOC_Checker_Python directory to Python path for imports
-sys.path.insert(0, os.path.dirname(__file__))
+# Only add to path if running as a script (not installed package)
+if __name__ == "__main__" and not hasattr(sys, '_called_from_test'):
+    # Add the IOC_Checker_Python directory to Python path for imports
+    sys.path.insert(0, os.path.dirname(__file__))
 
 def main():
     # Check for help requests

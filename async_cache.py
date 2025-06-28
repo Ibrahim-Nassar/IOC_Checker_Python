@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import os
-if os.name == "nt":
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+# Note: Removed automatic WindowsSelectorEventLoopPolicy override 
+# to avoid breaking subprocess support and user's event loop choice
 
 import atexit
 import contextvars
@@ -92,15 +92,24 @@ async def apost(url: str, json: dict, *, timeout: float = 5.0, ttl: int = 900, a
 @atexit.register
 def _close_all_clients() -> None:
     """Best effort cleanup on exit."""
-    import asyncio
     try:
         client = _CLIENT_CVAR.get(None)
     except LookupError:
         client = None
     if client and not client.is_closed:
-        loop = asyncio.new_event_loop()
-        loop.run_until_complete(client.aclose())
-        loop.close()
+        try:
+            # Try to use existing loop if available
+            loop = asyncio.get_running_loop()
+            # Schedule cleanup in the existing loop
+            loop.create_task(client.aclose())
+        except RuntimeError:
+            # No loop running, create minimal cleanup
+            # Note: This may still cause warnings but avoids hanging
+            try:
+                import weakref
+                weakref.finalize(client, lambda: None)  # Let GC handle it
+            except:
+                pass  # Best effort cleanup
 
 
 __all__ = ["aget", "apost"] 

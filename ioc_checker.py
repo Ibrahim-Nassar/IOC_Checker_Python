@@ -101,6 +101,12 @@ async def scan_ioc(ioc: str, ioc_type: str, provider_list: list | None = None) -
 def scan_ioc_sync(ioc: str, ioc_type: str) -> Dict[str, IOCResult]:
     """Sync wrapper for GUI/CLI convenience."""
     from providers import get_providers
+    
+    try:
+        loop = asyncio.get_running_loop()
+        raise RuntimeError("scan_ioc_sync cannot be called from an async loop")
+    except RuntimeError:
+        pass
     return asyncio.run(scan_ioc(ioc, ioc_type, get_providers()))
 
 

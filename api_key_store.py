@@ -39,7 +39,7 @@ except Exception as exc:  # pragma: no cover – import failure
 # JSON fallback storage (~/.config/ioc_checker/keys.json)
 # ---------------------------------------------------------------------------
 _FALLBACK_DIR = Path.home() / ".config" / SERVICE_NAME
-_FALLBACK_FILE = _FALLBACK_DIR / "keys.json"
+_JSON_PATH = _FALLBACK_DIR / "keys.json"
 
 
 def _ensure_fallback_dir() -> None:
@@ -50,17 +50,17 @@ def _ensure_fallback_dir() -> None:
 def _load_all_fallback() -> Dict[str, str]:
     """Load all stored keys from the fallback JSON file."""
     _ensure_fallback_dir()
-    if not _FALLBACK_FILE.exists():
+    if not _JSON_PATH.exists():
         return {}
 
     try:
-        with _FALLBACK_FILE.open("r", encoding="utf-8") as fp:
+        with _JSON_PATH.open("r", encoding="utf-8") as fp:
             data = json.load(fp) or {}
             return {str(k): str(v) for k, v in data.items()}
     except (json.JSONDecodeError, OSError):
         # Corrupted file – rename and start fresh.
         try:
-            _FALLBACK_FILE.rename(_FALLBACK_FILE.with_suffix(".corrupt"))
+            _JSON_PATH.rename(_JSON_PATH.with_suffix(".corrupt"))
         except OSError:
             pass
         return {}
@@ -69,12 +69,22 @@ def _load_all_fallback() -> Dict[str, str]:
 def _save_all_fallback(data: Dict[str, str]) -> None:
     """Persist *data* atomically to the fallback JSON file."""
     _ensure_fallback_dir()
-    tmp = _FALLBACK_FILE.with_suffix(".tmp")
+    
+    # Create the file with secure permissions if it doesn't exist
+    _JSON_PATH.touch(mode=0o600, exist_ok=True)
+    
+    tmp = _JSON_PATH.with_suffix(".tmp")
     with tmp.open("w", encoding="utf-8") as fp:
         json.dump(data, fp, indent=2)
         fp.flush()
         os.fsync(fp.fileno())
-    tmp.replace(_FALLBACK_FILE)
+    
+    # Set restrictive permissions on temp file (owner read/write only)
+    os.chmod(tmp, 0o600)
+    tmp.replace(_JSON_PATH)
+    
+    # Ensure final file also has correct permissions
+    os.chmod(_JSON_PATH, 0o600)
 
 
 # ---------------------------------------------------------------------------
