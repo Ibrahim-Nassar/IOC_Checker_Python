@@ -4,6 +4,7 @@ VirusTotal provider adapter for the IOC Checker project.
 from __future__ import annotations
 
 import os
+import base64
 from typing import Literal
 
 from async_cache import aget
@@ -23,24 +24,27 @@ class VirusTotalProvider:
         
         self.api_key = api_key
     
+    def _encode_url_for_vt(self, url: str) -> str:
+        """Encode URL for VirusTotal API: UTF-8, lowercase, strip, base64url without padding."""
+        normalized = url.strip().lower()
+        encoded_bytes = base64.urlsafe_b64encode(normalized.encode('utf-8'))
+        # Remove padding
+        return encoded_bytes.decode('ascii').rstrip('=')
+    
     async def query_ioc(self, ioc: str, ioc_type: Literal["ip", "domain", "url", "hash"]) -> IOCResult:
         if ioc_type == "url":
-            return IOCResult(
-                ioc=ioc,
-                ioc_type=ioc_type,
-                status=IOCStatus.UNSUPPORTED,
-                malicious_engines=0,
-                total_engines=0,
-                message="URL scanning not supported by this provider"
-            )
+            # Use URL endpoint with base64url encoding
+            url_id = self._encode_url_for_vt(ioc)
+            endpoint = f"/urls/{url_id}"
+        else:
+            endpoint_map = {
+                "ip": f"/ip_addresses/{ioc}",
+                "domain": f"/domains/{ioc}",
+                "hash": f"/files/{ioc}"
+            }
+            endpoint = endpoint_map[ioc_type]
         
-        endpoint_map = {
-            "ip": f"/ip_addresses/{ioc}",
-            "domain": f"/domains/{ioc}",
-            "hash": f"/files/{ioc}"
-        }
-        
-        url = f"https://www.virustotal.com/api/v3{endpoint_map[ioc_type]}"
+        url = f"https://www.virustotal.com/api/v3{endpoint}"
         headers = {"x-apikey": self.api_key}
         
         try:

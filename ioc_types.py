@@ -158,37 +158,31 @@ def _valid_url(v:str)->bool:
         if not p.netloc:
             return False
         
-        # Check for common invalid patterns
-        if ".." in v:  # consecutive dots
+        # Check for common invalid patterns in the whole URL
+        if ".." in v:  # consecutive dots anywhere in URL
             return False
-        if v.endswith("/.") or "/./" in v:  # path ending with /. or containing /./
+        if v.endswith("/.") or "/./" in v or v.endswith("./"):  # path ending with /. or ./ or containing /./
             return False
-        if "/." in p.path and not "/.well-known" in p.path:  # hidden files/dirs (except .well-known)
+        if v.endswith(".") and not any(v.endswith(f".{ext}") for ext in ['html', 'php', 'aspx', 'jsp', 'css', 'js', 'json', 'xml', 'txt', 'pdf']):
             return False
-        
-        # Check for paths ending with a dot (like /news.)
-        if p.path and (p.path.endswith(".") or "/." in p.path):
-            # Allow .well-known and file extensions
-            if not ("/.well-known" in p.path or any(p.path.endswith(f".{ext}") for ext in ['html', 'php', 'aspx', 'jsp', 'css', 'js', 'json', 'xml'])):
-                return False
         
         # Validate the domain part of the URL
         domain = p.netloc.split(':')[0]  # Remove port if present
         if not _valid_domain(domain):
             return False
         
-        # Check for malformed path components
+        # More lenient path validation - allow most paths that don't have obvious issues
         if p.path:
-            # Path shouldn't have consecutive slashes (except after scheme)
-            normalized_path = p.path.replace('//', '/')
-            if '//' in normalized_path:
+            # Only reject obviously malformed paths
+            if p.path.startswith("//") or "//" in p.path[1:]:  # Multiple consecutive slashes
                 return False
             
-            # Path components shouldn't be empty strings or just dots
+            # Allow paths with normal extensions and directories
+            # Only reject if path components are just dots without extensions
             path_parts = [part for part in p.path.split('/') if part]
             for part in path_parts:
-                if part == '.' or part == '..' or (part.endswith('.') and '.' not in part[:-1]):
-                    # Reject paths ending with dot unless it's a file extension
+                # Only reject pure dots without any context
+                if part in ['.', '..']:
                     return False
         
         return True

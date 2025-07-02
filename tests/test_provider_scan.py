@@ -91,3 +91,69 @@ def test_scan_partial_failure(monkeypatch):
     results = asyncio.run(run_test())
     verdict = aggregate_verdict(results)
     assert verdict is IOCStatus.ERROR
+
+
+def test_virustotal_url_scanning(monkeypatch):
+    """Test that VirusTotal provider can scan URLs and return malicious status."""
+    from virustotal_api import VirusTotalProvider
+    from unittest.mock import AsyncMock, Mock
+    
+    # Create a mock response for a malicious URL
+    mock_response = Mock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "data": {
+            "attributes": {
+                "last_analysis_stats": {
+                    "malicious": 20,
+                    "suspicious": 3,
+                    "undetected": 70,
+                    "harmless": 0,
+                    "timeout": 0
+                }
+            }
+        }
+    }
+    
+    # Mock the aget function in the virustotal_api module directly
+    import virustotal_api
+    monkeypatch.setattr(virustotal_api, "aget", AsyncMock(return_value=mock_response))
+    
+    # Test synchronously since we're in pytest
+    provider = VirusTotalProvider(api_key="test_key")
+    
+    # We need to run this in an async context
+    import asyncio
+    
+    async def run_test():
+        result = await provider.query_ioc("http://evil.test", "url")
+        
+        assert result.status == IOCStatus.MALICIOUS
+        assert result.malicious_engines == 20
+        assert result.total_engines == 93  # 20+3+70+0+0
+        assert result.ioc == "http://evil.test"
+        assert result.ioc_type == "url"
+    
+    asyncio.run(run_test())
+
+
+def test_virustotal_url_encoding():
+    """Test that URL encoding for VirusTotal works correctly."""
+    from virustotal_api import VirusTotalProvider
+    
+    provider = VirusTotalProvider(api_key="test_key")
+    
+    # Test URL encoding
+    test_url = "http://evil.test"
+    encoded = provider._encode_url_for_vt(test_url)
+    
+    # Verify it's base64url encoded without padding
+    import base64
+    expected = base64.urlsafe_b64encode(test_url.encode('utf-8')).decode('ascii').rstrip('=')
+    assert encoded == expected
+    
+    # Test with URL that has different cases and whitespace
+    test_url_messy = "  HTTP://EVIL.TEST  "
+    encoded_messy = provider._encode_url_for_vt(test_url_messy)
+    expected_clean = base64.urlsafe_b64encode("http://evil.test".encode('utf-8')).decode('ascii').rstrip('=')
+    assert encoded_messy == expected_clean
