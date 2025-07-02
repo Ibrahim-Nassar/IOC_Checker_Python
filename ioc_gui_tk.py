@@ -14,6 +14,8 @@ import threading
 import queue
 from pathlib import Path
 import functools
+import csv
+from datetime import datetime
 
 from ioc_types import IOCStatus, IOCResult, detect_ioc_type, validate_ioc
 from providers import get_providers
@@ -89,6 +91,8 @@ class IOCCheckerGUI:
         self.processing = False
         self.all_results = []
         self.q = queue.Queue()
+        self.batch_task = None  # Track current batch task for cancellation
+        self.processed_iocs = set()  # Track processed IOCs to prevent duplicates
         
         self.provider_config = {
             'virustotal': False,
@@ -180,7 +184,10 @@ class IOCCheckerGUI:
         ttk.Label(file_frame, text="File:").grid(row=0, column=0, sticky="w", padx=(0, 5))
         ttk.Entry(file_frame, textvariable=self.file_var, width=50).grid(row=0, column=1, sticky="ew", padx=(0, 10))
         ttk.Button(file_frame, text="Browse", command=self._browse).grid(row=0, column=2, padx=(0, 10))
-        ttk.Button(file_frame, text="Process", command=self._start_batch).grid(row=0, column=3)
+        self.process_button = ttk.Button(file_frame, text="Process", command=self._start_batch)
+        self.process_button.grid(row=0, column=3, padx=(0, 5))
+        self.stop_button = ttk.Button(file_frame, text="Stop", command=self._stop_batch, state="disabled")
+        self.stop_button.grid(row=0, column=4)
         
         file_frame.columnconfigure(1, weight=1)
         
@@ -552,54 +559,165 @@ class IOCCheckerGUI:
         # Update columns before processing
         self._update_treeview_columns()
         self._clear()
+        self.processed_iocs.clear()  # Clear duplicate tracking
         
         selected_providers = self._selected_providers()
         if not selected_providers:
             messagebox.showerror("Error", "No valid providers available for scanning.")
             return
         
+        # Enable/disable buttons
+        self.process_button.config(state="disabled")
+        self.stop_button.config(state="normal")
+        self.progress_label.config(text="Loading IOCs...")
+        
         try:
             from loader import load_iocs
             iocs = load_iocs(Path(filename))
             if not iocs:
                 messagebox.showerror("Error", "No IOCs found in file.")
+                self._reset_batch_ui()
                 return
             
             processing_values = ["Batch", filename, f"Processing {len(iocs)} IOCs...", ""] + [""] * len(selected_providers)
             self.out.insert('', 'end', values=tuple(processing_values))
             self.root.update()
             
-            async def process_batch():
+            async def process_batch() -> None:
                 valid_count = 0
                 invalid_count = 0
+                duplicate_count = 0
+                csv_results = []
                 
-                for ioc_data in iocs:
-                    ioc_value = ioc_data.get('value', str(ioc_data))
+                try:
+                    for i, ioc_data in enumerate(iocs):
+                        ioc_value = ioc_data.get('value', str(ioc_data))
+                        
+                        # Check for duplicates
+                        if ioc_value in self.processed_iocs:
+                            duplicate_count += 1
+                            continue
+                        
+                        self.processed_iocs.add(ioc_value)
+                        
+                        # Update progress
+                        self.root.after(0, lambda idx=i, total=len(iocs): 
+                                      self.progress_label.config(text=f"Processing {idx+1}/{total} IOCs..."))
+                        
+                        # Validate each IOC before processing
+                        is_valid, ioc_type, normalized_ioc, error_message = validate_ioc(ioc_value)
+                        
+                        if is_valid:
+                            valid_count += 1
+                            results = await scan_ioc(normalized_ioc, ioc_type, selected_providers)
+                            
+                            # Determine overall verdict for CSV
+                            from ioc_checker import aggregate_verdict
+                            from ioc_types import IOCStatus
+                            overall_verdict = aggregate_verdict(list(results.values()))
+                            flagged_providers = [name for name, result in results.items() 
+                                               if result.status == IOCStatus.MALICIOUS]
+                            
+                            verdict_text = "malicious" if overall_verdict == IOCStatus.MALICIOUS else "clean"
+                            if overall_verdict == IOCStatus.ERROR:
+                                verdict_text = "error"
+                            
+                            csv_results.append({
+                                'type': ioc_type,
+                                'ioc': normalized_ioc,
+                                'verdict': verdict_text,
+                                'flagged_by': ', '.join(flagged_providers)
+                            })
+                            
+                            self.root.after(0, lambda r=results, norm_ioc=normalized_ioc, t=ioc_type: 
+                                          self.update_table(r, norm_ioc, t))
+                        else:
+                            invalid_count += 1
+                            csv_results.append({
+                                'type': 'invalid',
+                                'ioc': ioc_value,
+                                'verdict': 'error',
+                                'flagged_by': f'Validation Error: {error_message}'
+                            })
+                            # Add invalid IOC to results table with error message
+                            self.root.after(0, lambda val=ioc_value, err=error_message: 
+                                          self.update_table({}, val, "invalid", None, f"Validation Error: {err}"))
                     
-                    # Validate each IOC before processing
-                    is_valid, ioc_type, normalized_ioc, error_message = validate_ioc(ioc_value)
+                    # Export results to CSV
+                    csv_path = self._export_batch_results(filename, csv_results)
                     
-                    if is_valid:
-                        valid_count += 1
-                        results = await scan_ioc(normalized_ioc, ioc_type, selected_providers)
-                        self.root.after(0, lambda r=results, i=normalized_ioc, t=ioc_type: 
-                                      self.update_table(r, i, t))
+                    summary_message = f"Batch processing complete!\n\nValid IOCs processed: {valid_count}\nInvalid IOCs skipped: {invalid_count}"
+                    if duplicate_count > 0:
+                        summary_message += f"\nDuplicate IOCs skipped: {duplicate_count}"
+                    summary_message += f"\nTotal: {len(iocs)}"
+                    if csv_path:
+                        summary_message += f"\n\nResults exported to: {csv_path}"
+                    
+                    self.root.after(0, lambda: self._batch_complete(summary_message))
+                    
+                except asyncio.CancelledError:
+                    # Export partial results if cancelled
+                    if csv_results:
+                        csv_path = self._export_batch_results(filename, csv_results, cancelled=True)
+                        cancel_msg = f"Batch processing cancelled.\n\nProcessed {len(csv_results)} IOCs before cancellation."
+                        if csv_path:
+                            cancel_msg += f"\n\nPartial results exported to: {csv_path}"
+                        self.root.after(0, lambda: self._batch_cancelled(cancel_msg))
                     else:
-                        invalid_count += 1
-                        # Add invalid IOC to results table with error message
-                        self.root.after(0, lambda val=ioc_value, err=error_message: 
-                                      self.update_table({}, val, "invalid", None, f"Validation Error: {err}"))
-                
-                summary_message = f"Batch processing complete!\n\nValid IOCs processed: {valid_count}\nInvalid IOCs skipped: {invalid_count}\nTotal: {len(iocs)}"
-                if invalid_count > 0:
-                    summary_message += f"\n\nInvalid IOCs are shown in the results table with error details."
-                
-                self.root.after(0, lambda: messagebox.showinfo("Batch Complete", summary_message))
+                        self.root.after(0, lambda: self._batch_cancelled("Batch processing cancelled."))
+                    raise
             
-            future = asyncio.run_coroutine_threadsafe(process_batch(), _LOOP)
+            self.batch_task = asyncio.run_coroutine_threadsafe(process_batch(), _LOOP)
             
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load IOCs: {str(e)}")
+            self._reset_batch_ui()
+    
+    def _stop_batch(self):
+        """Stop the current batch processing."""
+        if self.batch_task and not self.batch_task.done():
+            self.batch_task.cancel()
+            self.progress_label.config(text="Cancelling...")
+    
+    def _batch_complete(self, message):
+        """Handle batch completion."""
+        messagebox.showinfo("Batch Complete", message)
+        self._reset_batch_ui()
+    
+    def _batch_cancelled(self, message):
+        """Handle batch cancellation."""
+        messagebox.showwarning("Batch Cancelled", message)
+        self._reset_batch_ui()
+    
+    def _reset_batch_ui(self):
+        """Reset UI state after batch completion or cancellation."""
+        self.process_button.config(state="normal")
+        self.stop_button.config(state="disabled")
+        self.progress_label.config(text="Ready")
+        self.batch_task = None
+    
+    def _export_batch_results(self, input_filename, results, cancelled=False):
+        """Export batch results to CSV file."""
+        try:
+            
+            # Generate output filename
+            input_path = Path(input_filename)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            status_suffix = "_cancelled" if cancelled else ""
+            output_filename = f"batch_results_{timestamp}{status_suffix}.csv"
+            output_path = input_path.parent / output_filename
+            
+            # Write CSV
+            with open(output_path, 'w', newline='', encoding='utf-8') as csvfile:
+                fieldnames = ['type', 'ioc', 'verdict', 'flagged_by']
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(results)
+            
+            return str(output_path)
+        except Exception as e:
+            self.root.after(0, lambda: messagebox.showerror("Export Error", f"Failed to export results: {str(e)}"))
+            return None
     
     def _configure_api_keys(self):
         config_win = tk.Toplevel(self.root)
