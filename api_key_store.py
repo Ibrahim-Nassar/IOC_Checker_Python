@@ -94,18 +94,32 @@ __all__ = ["save", "load"]
 
 
 def save(provider_env_var: str, value: str) -> None:
-    """Persist an API *value* for *provider_env_var*."""
+    """Persist an API *value* for *provider_env_var*.
+    
+    - Non-empty values are stored
+    - Empty/blank values remove the stored key entirely
+    - Atomic writes ensure data integrity
+    """
+    # Normalize the value (strip whitespace, treat empty as None)
+    normalized_value = value.strip() if value else ""
+    
     if _KEYRING_AVAILABLE:
         try:
-            keyring.set_password(SERVICE_NAME, provider_env_var, value)  # type: ignore[call-arg]
+            if normalized_value:
+                keyring.set_password(SERVICE_NAME, provider_env_var, normalized_value)  # type: ignore[call-arg]
+            else:
+                # Remove the key from keyring when value is empty
+                keyring.delete_password(SERVICE_NAME, provider_env_var)  # type: ignore[call-arg]
             return
         except KeyringError:
-            pass  # fall through to JSON fallback
+            pass  # fall through to JSON fallback for both set and delete operations
 
+    # JSON fallback
     data = _load_all_fallback()
-    if value:
-        data[provider_env_var] = value
+    if normalized_value:
+        data[provider_env_var] = normalized_value
     else:
+        # Remove key completely when clearing
         data.pop(provider_env_var, None)
     _save_all_fallback(data)
 

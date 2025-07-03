@@ -118,10 +118,19 @@ class IOCCheckerGUI:
         _API_VARS = ("VIRUSTOTAL_API_KEY", "OTX_API_KEY",
                      "ABUSEIPDB_API_KEY", "GREYNOISE_API_KEY", "THREATFOX_API_KEY")
         
+        loaded_keys = []
         for var in _API_VARS:
             val = load_key(var)
             if val:
                 os.environ[var] = val
+                loaded_keys.append(var)
+        
+        # Log which API keys were loaded for debugging
+        import logging
+        if loaded_keys:
+            logging.info(f"Loaded {len(loaded_keys)} saved API keys: {', '.join(loaded_keys)}")
+        else:
+            logging.info("No saved API keys found")
         
         self._create_menu()
         self._build_ui()
@@ -976,6 +985,8 @@ class IOCCheckerGUI:
         
         entries = {}
         eye_buttons = {}
+        status_labels = {}  # Status indicators for each key
+        original_values = {}  # Track original values to detect intentional clearing
         
         for provider_id, name, env_var, _, _ in self.providers_info:
             frame = ttk.Frame(main_frame)
@@ -990,15 +1001,25 @@ class IOCCheckerGUI:
             
             # Eye toggle button
             eye_button = ttk.Button(frame, text="👁", width=3)
-            eye_button.pack(side="right")
+            eye_button.pack(side="right", padx=(0, 5))
             
-            # Load saved key or fall back to environment variable
-            saved_key = load_key(env_var) or os.getenv(env_var, "")
+            # Status label (initially hidden)
+            status_label = ttk.Label(frame, text="", foreground="green", width=8)
+            status_label.pack(side="right")
+            
+            # Load saved key (prefer stored key over environment variable)
+            saved_key = load_key(env_var) or ""
             entry.insert(0, saved_key)
             
-            # Store references
+            # Show initial status if key exists
+            if saved_key:
+                status_label.config(text="✓ Saved", foreground="green")
+            
+            # Store references and track original values
             entries[env_var] = entry
             eye_buttons[env_var] = eye_button
+            status_labels[env_var] = status_label
+            original_values[env_var] = saved_key
             
             # Create toggle function for this specific entry
             def create_toggle_function(entry_widget, button_widget):
@@ -1033,19 +1054,55 @@ class IOCCheckerGUI:
         
         def save_keys():
             from providers import refresh
+            import logging
+            
+            saved_count = 0
+            cleared_count = 0
+            
+            # Update status labels in real-time
             for var, entry in entries.items():
-                val = entry.get().strip()
-                if val:
-                    save_key(var, val)
-                    os.environ[var] = val
-                else:                    # allow clearing
+                current_val = entry.get().strip()
+                original_val = original_values[var]
+                status_label = status_labels[var]
+                
+                if current_val:
+                    # Non-empty value: always save
+                    save_key(var, current_val)
+                    os.environ[var] = current_val
+                    saved_count += 1
+                    status_label.config(text="✓ Saved", foreground="green")
+                    logging.info(f"Saved API key for {var}")
+                elif original_val and not current_val:
+                    # Had a value before, now empty: user intentionally cleared it
                     save_key(var, "")
                     os.environ.pop(var, None)
+                    cleared_count += 1
+                    status_label.config(text="✓ Cleared", foreground="orange")
+                    logging.info(f"Cleared API key for {var}")
+                else:
+                    # No change needed
+                    if not current_val and not original_val:
+                        status_label.config(text="", foreground="gray")
+                    else:
+                        status_label.config(text="✓ Saved", foreground="green")
             
             # Refresh providers after API key changes
             refresh()
-            messagebox.showinfo("Success", "API keys saved securely and will be remembered for future sessions.")
-            config_win.destroy()
+            
+            # Show detailed success message
+            status_parts = []
+            if saved_count > 0:
+                status_parts.append(f"{saved_count} key(s) saved")
+            if cleared_count > 0:
+                status_parts.append(f"{cleared_count} key(s) cleared")
+            
+            status_msg = "API keys updated: " + ", ".join(status_parts) if status_parts else "No changes made"
+            status_msg += ". Keys will be remembered for future sessions."
+            
+            messagebox.showinfo("Success", status_msg)
+            
+            # Auto-close after a brief delay
+            config_win.after(1500, config_win.destroy)
         
         ttk.Button(buttons_frame, text="Cancel", command=config_win.destroy).pack(side="right", padx=(5, 0))
         ttk.Button(buttons_frame, text="Save", command=save_keys).pack(side="right")
