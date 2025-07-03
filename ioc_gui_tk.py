@@ -579,6 +579,52 @@ class IOCCheckerGUI:
                 self._reset_batch_ui()
                 return
             
+            # Check for provider-type mismatches
+            ioc_types_found, unsupported_iocs, provider_type_map = self._analyze_ioc_types(iocs)
+            
+            # If there are unsupported IOCs, show the mismatch dialog
+            if unsupported_iocs:
+                action, export_unsupported = self._show_provider_mismatch_dialog(
+                    ioc_types_found, unsupported_iocs, provider_type_map)
+                
+                if action == 'cancel':
+                    self._reset_batch_ui()
+                    return
+                elif action == 'skip':
+                    # Filter out unsupported IOCs
+                    from ioc_types import validate_ioc
+                    unsupported_values = {ioc['normalized'] for ioc in unsupported_iocs}
+                    original_count = len(iocs)
+                    filtered_iocs = []
+                    
+                    for ioc_data in iocs:
+                        ioc_value = ioc_data.get('value', str(ioc_data))
+                        is_valid, ioc_type, normalized_ioc, error_message = validate_ioc(ioc_value)
+                        
+                        # Keep IOC if it's not in the unsupported list
+                        if not is_valid or normalized_ioc not in unsupported_values:
+                            filtered_iocs.append(ioc_data)
+                    
+                    iocs = filtered_iocs
+                    
+                    # Export unsupported IOCs if requested
+                    if export_unsupported:
+                        unsupported_path = self._export_unsupported_iocs(filename, unsupported_iocs)
+                        if unsupported_path:
+                            messagebox.showinfo("Export Complete", 
+                                               f"Unsupported IOCs exported to:\n{unsupported_path}")
+                    
+                    # Update the user about filtered IOCs
+                    messagebox.showinfo("IOCs Filtered", 
+                                       f"Filtered out {len(unsupported_iocs)} unsupported IOCs.\n"
+                                       f"Processing {len(iocs)} supported IOCs.")
+                # For 'continue', we proceed with all IOCs (including unsupported ones)
+            
+            if not iocs:
+                messagebox.showinfo("No IOCs", "No supported IOCs to process after filtering.")
+                self._reset_batch_ui()
+                return
+            
             processing_values = ["Batch", filename, f"Processing {len(iocs)} IOCs...", ""] + [""] * len(selected_providers)
             self.out.insert('', 'end', values=tuple(processing_values))
             self.root.update()
@@ -696,6 +742,203 @@ class IOCCheckerGUI:
         self.progress_label.config(text="Ready")
         self.batch_task = None
     
+    def _analyze_ioc_types(self, iocs):
+        """Analyze IOC types in the batch and detect type mismatches with selected providers.
+        
+        Returns:
+            tuple: (ioc_types_found, unsupported_iocs, provider_type_map)
+        """
+        from ioc_types import detect_ioc_type, validate_ioc
+        
+        ioc_types_found = set()
+        unsupported_iocs = []
+        
+        # Get selected providers and their supported types
+        selected_providers = self._selected_providers()
+        provider_type_map = {}
+        for provider in selected_providers:
+            # Find provider info from providers_info
+            for pid, name, env_var, desc, supported_types in self.providers_info:
+                if name == provider.NAME:
+                    provider_type_map[provider.NAME] = set(supported_types)
+                    break
+        
+        # Analyze each IOC
+        for ioc_data in iocs:
+            ioc_value = ioc_data.get('value', str(ioc_data))
+            
+            # Validate and detect type
+            is_valid, ioc_type, normalized_ioc, error_message = validate_ioc(ioc_value)
+            
+            if is_valid:
+                ioc_types_found.add(ioc_type)
+                
+                # Check if any selected provider supports this IOC type
+                supported_by_any = False
+                for provider_name, supported_types in provider_type_map.items():
+                    if ioc_type in supported_types:
+                        supported_by_any = True
+                        break
+                
+                if not supported_by_any:
+                    unsupported_iocs.append({
+                        'value': ioc_value,
+                        'type': ioc_type,
+                        'normalized': normalized_ioc
+                    })
+        
+        return ioc_types_found, unsupported_iocs, provider_type_map
+
+    def _show_provider_mismatch_dialog(self, ioc_types_found, unsupported_iocs, provider_type_map):
+        """Show dialog when selected providers don't support all IOC types in the batch.
+        
+        Returns:
+            tuple: (action, export_unsupported) where action is one of:
+                   'cancel', 'skip', 'continue'
+        """
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Provider Type Mismatch")
+        dialog.geometry("600x450")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+        
+        # Center the dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (600 // 2)
+        y = (dialog.winfo_screenheight() // 2) - (450 // 2)
+        dialog.geometry(f"600x450+{x}+{y}")
+        
+        result = {'action': 'cancel', 'export_unsupported': False}
+        
+        main_frame = ttk.Frame(dialog)
+        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        # Title
+        title_label = ttk.Label(main_frame, text="Provider Type Mismatch Detected", 
+                               font=("Arial", 12, "bold"))
+        title_label.pack(pady=(0, 15))
+        
+        # Description
+        desc_text = ("The selected providers don't support all IOC types found in your file.\n"
+                    "Some IOCs will be marked as 'unsupported' and won't be scanned.")
+        ttk.Label(main_frame, text=desc_text, justify="center", wraplength=550).pack(pady=(0, 15))
+        
+        # Summary frame
+        summary_frame = ttk.LabelFrame(main_frame, text="Summary", padding=10)
+        summary_frame.pack(fill="x", pady=(0, 15))
+        
+        # IOC types found
+        types_text = f"IOC types in file: {', '.join(sorted(ioc_types_found))}"
+        ttk.Label(summary_frame, text=types_text).pack(anchor="w")
+        
+        # Selected providers and their types
+        provider_text = "Selected providers and supported types:"
+        ttk.Label(summary_frame, text=provider_text, font=("Arial", 9, "bold")).pack(anchor="w", pady=(10, 5))
+        
+        for provider_name, supported_types in provider_type_map.items():
+            types_str = ', '.join(sorted(supported_types))
+            ttk.Label(summary_frame, text=f"  • {provider_name}: {types_str}").pack(anchor="w")
+        
+        # Unsupported IOCs
+        if unsupported_iocs:
+            unsupported_text = f"Unsupported IOCs: {len(unsupported_iocs)} out of {len(unsupported_iocs) + sum(1 for t in ioc_types_found if any(t in types for types in provider_type_map.values()))}"
+            ttk.Label(summary_frame, text=unsupported_text, foreground="red").pack(anchor="w", pady=(5, 0))
+        
+        # Unsupported IOCs details (if any)
+        if unsupported_iocs:
+            details_frame = ttk.LabelFrame(main_frame, text="Unsupported IOCs (first 10 shown)", padding=10)
+            details_frame.pack(fill="both", expand=True, pady=(0, 15))
+            
+            # Create treeview for unsupported IOCs
+            columns = ("Type", "IOC")
+            tree = ttk.Treeview(details_frame, columns=columns, show="headings", height=6)
+            tree.heading("Type", text="Type")
+            tree.heading("IOC", text="IOC")
+            tree.column("Type", width=80, anchor="center")
+            tree.column("IOC", width=400, anchor="w")
+            
+            # Add first 10 unsupported IOCs
+            for ioc in unsupported_iocs[:10]:
+                tree.insert('', 'end', values=(ioc['type'], ioc['value']))
+            
+            if len(unsupported_iocs) > 10:
+                tree.insert('', 'end', values=("...", f"...and {len(unsupported_iocs) - 10} more"))
+            
+            # Scrollbar for treeview
+            scrollbar = ttk.Scrollbar(details_frame, orient="vertical", command=tree.yview)
+            tree.configure(yscrollcommand=scrollbar.set)
+            
+            tree.pack(side="left", fill="both", expand=True)
+            scrollbar.pack(side="right", fill="y")
+        
+        # Options frame
+        options_frame = ttk.LabelFrame(main_frame, text="Options", padding=10)
+        options_frame.pack(fill="x", pady=(0, 15))
+        
+        export_var = tk.BooleanVar(value=True)
+        export_cb = ttk.Checkbutton(options_frame, 
+                                   text="Export unsupported IOCs to separate CSV file",
+                                   variable=export_var)
+        export_cb.pack(anchor="w")
+        
+        # Button frame
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill="x")
+        
+        def on_cancel():
+            result['action'] = 'cancel'
+            dialog.destroy()
+        
+        def on_skip():
+            result['action'] = 'skip'
+            result['export_unsupported'] = export_var.get()
+            dialog.destroy()
+        
+        def on_continue():
+            result['action'] = 'continue'
+            result['export_unsupported'] = export_var.get()
+            dialog.destroy()
+        
+        # Buttons
+        ttk.Button(button_frame, text="Cancel", command=on_cancel).pack(side="right", padx=(5, 0))
+        ttk.Button(button_frame, text="Skip Unsupported", command=on_skip).pack(side="right", padx=(5, 0))
+        ttk.Button(button_frame, text="Continue Anyway", command=on_continue).pack(side="right", padx=(5, 0))
+        ttk.Button(button_frame, text="Go Back to Select Providers", command=on_cancel).pack(side="left")
+        
+        # Wait for dialog to close
+        dialog.wait_window()
+        
+        return result['action'], result['export_unsupported']
+
+    def _export_unsupported_iocs(self, filename, unsupported_iocs):
+        """Export unsupported IOCs to a separate CSV file."""
+        try:
+            from pathlib import Path
+            from datetime import datetime
+            
+            input_path = Path(filename)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_filename = f"unsupported_iocs_{timestamp}.csv"
+            output_path = input_path.parent / output_filename
+            
+            with open(output_path, 'w', newline='', encoding='utf-8') as csvfile:
+                fieldnames = ['type', 'ioc', 'reason']
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+                
+                for ioc in unsupported_iocs:
+                    writer.writerow({
+                        'type': ioc['type'],
+                        'ioc': ioc['value'],
+                        'reason': f"No selected provider supports {ioc['type']} IOCs"
+                    })
+            
+            return str(output_path)
+        except Exception as e:
+            messagebox.showerror("Export Error", f"Failed to export unsupported IOCs: {str(e)}")
+            return None
+
     def _export_batch_results(self, input_filename, results, cancelled=False):
         """Export batch results to CSV file."""
         try:
