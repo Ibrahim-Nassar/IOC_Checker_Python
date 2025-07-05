@@ -48,9 +48,10 @@ AVAILABLE_PROVIDERS = {
     'greynoise': 'GreyNoise',
 }
 
-_LOOP = asyncio.new_event_loop()
-_LOOP_THREAD = threading.Thread(target=_LOOP.run_forever, daemon=True)
-_LOOP_THREAD.start()
+# Module-level flag to prevent duplicate background loops
+_GUI_LOOP_RUNNING = False
+_GUI_LOOP = None
+_GUI_LOOP_THREAD = None
 
 # Simple tooltip class for better UX
 class ToolTip:
@@ -102,6 +103,9 @@ class IOCCheckerGUI:
             'greynoise': False,
         }
         
+        # Reference to the background loop
+        self.loop = _GUI_LOOP
+        
         self.providers_info = [
             ("virustotal", "VirusTotal", "VIRUSTOTAL_API_KEY", "Universal threat intelligence platform", ["ip", "domain", "url", "hash"]),
             ("abuseipdb", "AbuseIPDB", "ABUSEIPDB_API_KEY", "IP reputation and abuse reports", ["ip"]),
@@ -142,13 +146,22 @@ class IOCCheckerGUI:
 
     def _on_close(self) -> None:
         """Gracefully stop the background event loop and close the GUI."""
-        _LOOP.call_soon_threadsafe(_LOOP.stop)
-        _close_all_clients()
+        global _GUI_LOOP_RUNNING, _GUI_LOOP, _GUI_LOOP_THREAD
+        
+        if _GUI_LOOP and not _GUI_LOOP.is_closed():
+            _GUI_LOOP.call_soon_threadsafe(_GUI_LOOP.stop)
+        
         # Wait briefly for loop to stop
-        try:
-            _LOOP_THREAD.join(timeout=1.0)
-        except:
-            pass  # Best effort cleanup
+        if _GUI_LOOP_THREAD:
+            try:
+                _GUI_LOOP_THREAD.join(timeout=1.0)
+            except:
+                pass  # Best effort cleanup
+        
+        _GUI_LOOP_RUNNING = False
+        _GUI_LOOP = None
+        _GUI_LOOP_THREAD = None
+        
         self.root.destroy()
     
     def _create_menu(self):
@@ -498,7 +511,7 @@ class IOCCheckerGUI:
         self.root.update()
         
         future = asyncio.run_coroutine_threadsafe(
-            scan_ioc(ioc_value, ioc_type, selected_providers), _LOOP
+            scan_ioc(ioc_value, ioc_type, selected_providers), self.loop
         )
         future.add_done_callback(
             functools.partial(self._on_scan_done, ioc_value, ioc_type, placeholder)
@@ -722,7 +735,7 @@ class IOCCheckerGUI:
                         self.root.after(0, lambda: self._batch_cancelled("Batch processing cancelled."))
                     raise
             
-            self.batch_task = asyncio.run_coroutine_threadsafe(process_batch(), _LOOP)
+            self.batch_task = asyncio.run_coroutine_threadsafe(process_batch(), self.loop)
             
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load IOCs: {str(e)}")
@@ -768,9 +781,13 @@ class IOCCheckerGUI:
         for provider in selected_providers:
             # Find provider info from providers_info
             for pid, name, env_var, desc, supported_types in self.providers_info:
-                if name == provider.NAME:
+                if pid == provider.NAME.lower():
                     provider_type_map[provider.NAME] = set(supported_types)
                     break
+            else:
+                # Fallback: use provider.SUPPORTED_TYPES if available
+                if hasattr(provider, 'SUPPORTED_TYPES'):
+                    provider_type_map[provider.NAME] = set(provider.SUPPORTED_TYPES)
         
         # Analyze each IOC
         for ioc_data in iocs:
@@ -1153,8 +1170,23 @@ class IOCCheckerGUI:
 
 
 def run_gui():
-    app = IOCCheckerGUI()
-    app.run()
+    """Run the IOC Checker GUI."""
+    global _GUI_LOOP_RUNNING, _GUI_LOOP, _GUI_LOOP_THREAD
+    
+    # Prevent duplicate loops/threads
+    if _GUI_LOOP_RUNNING:
+        print("GUI loop already running")
+        return
+    
+    # Initialize the background event loop and thread
+    _GUI_LOOP = asyncio.new_event_loop()
+    _GUI_LOOP_THREAD = threading.Thread(target=_GUI_LOOP.run_forever, daemon=True)
+    _GUI_LOOP_THREAD.start()
+    _GUI_LOOP_RUNNING = True
+    
+    # Create and run the GUI
+    gui = IOCCheckerGUI()
+    gui.run()
 
 
 if __name__ == "__main__":

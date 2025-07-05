@@ -21,25 +21,22 @@ import csv
 import re
 from typing import Dict, List
 
-__all__ = ["load_iocs"]
+from ioc_types import detect_ioc_type
+
+__all__ = ["load_iocs", "stream_iocs"]
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 def _guess_type(indicator: str) -> str:
-    """Very small heuristic that guesses an IOC type from its value."""
+    """Guess IOC type using detect_ioc_type, with fallback to domain for unknown types."""
     indicator = indicator.strip()
-    if re.match(r"^(https?://|ftp://)", indicator, flags=re.I):
-        return "url"
-
-    ip_pat = r"^(?:\d{1,3}\.){3}\d{1,3}$"
-    if re.match(ip_pat, indicator):
-        return "ip"
-
-    sha256_pat = r"^[a-f0-9]{64}$"
-    if re.match(sha256_pat, indicator, flags=re.I):
-        return "hash"
-
-    return "domain"
+    detected_type, _ = detect_ioc_type(indicator)
+    
+    # If detect_ioc_type returns 'unknown', fall back to domain as before
+    if detected_type == "unknown":
+        return "domain"
+    
+    return detected_type
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -55,13 +52,12 @@ def _load_txt(path: Path) -> List[Dict[str, str]]:
     return data
 
 
-def _load_csv(path: Path) -> List[Dict[str, str]]:
-    """Load IOC rows from a CSV file.
+def _load_csv(path: Path):
+    """Load IOC rows from a CSV file as a generator.
 
     The function is liberal regarding the column names.  It accepts the first
     column as *value* if no well-known column names are found.
     """
-    data: List[Dict[str, str]] = []
     with path.open(newline="", encoding="utf-8-sig") as fh:
         reader = csv.DictReader(fh)
         for row in reader:
@@ -80,8 +76,7 @@ def _load_csv(path: Path) -> List[Dict[str, str]]:
                 continue
             value = value.strip()
             ioc_type = (row.get("Type") or row.get("type") or _guess_type(value)).strip().lower()
-            data.append({"value": value, "type": ioc_type})
-    return data
+            yield {"value": value, "type": ioc_type}
 
 
 # Public API ───────────────────────────────────────────────────────────────────
@@ -99,6 +94,30 @@ def load_iocs(path: Path) -> List[Dict[str, str]]:  # noqa: WPS231 (simple func)
     if suffix == ".txt":
         return _load_txt(path)
     if suffix == ".csv":
-        return _load_csv(path)
+        return list(_load_csv(path))  # Convert generator to list for backward compatibility
 
-    raise ValueError(f"Unsupported IOC file format: {path.suffix}") 
+    raise ValueError(f"Unsupported IOC file format: {path.suffix}")
+
+
+def stream_iocs(path: Path):
+    """Stream IOC dicts from *path* as a generator for memory-efficient processing.
+
+    Supported formats: ``.txt`` and ``.csv``.  Raises *ValueError* for
+    unsupported suffixes.
+    """
+    if not path.exists():
+        raise FileNotFoundError(path)
+
+    suffix = path.suffix.lower()
+    if suffix == ".txt":
+        # Convert txt loading to generator
+        with path.open(encoding="utf-8-sig") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                yield {"value": line, "type": _guess_type(line)}
+    elif suffix == ".csv":
+        yield from _load_csv(path)
+    else:
+        raise ValueError(f"Unsupported IOC file format: {path.suffix}") 

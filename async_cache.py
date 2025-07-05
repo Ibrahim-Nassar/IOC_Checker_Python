@@ -7,7 +7,7 @@ import os
 # to avoid breaking subprocess support and user's event loop choice
 
 import atexit
-import contextvars
+import collections
 import logging
 import threading
 import weakref
@@ -31,33 +31,57 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 # Create file cache instance that can be shared (only if httpx_cache is available)
 _FILE_CACHE = FileCache(str(CACHE_DIR / "async_cache")) if _HAS_CACHE else None
 
-# Context variable for per-loop client instances
-_CLIENT_CVAR: contextvars.ContextVar[httpx.AsyncClient] = contextvars.ContextVar("client")
+# Per-loop client storage to avoid "attached to different loop" errors
+_LOOP_CLIENTS: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, tuple[httpx.AsyncClient, asyncio.AbstractEventLoop]] = weakref.WeakKeyDictionary()
 
-_LIMITERS: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, AsyncLimiter]] = weakref.WeakKeyDictionary()
+_LIMITERS: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, collections.OrderedDict[str, AsyncLimiter]] = weakref.WeakKeyDictionary()
 _LIM_LOCK = threading.Lock()
+_CLIENT_LOCK = threading.Lock()
 
 
 def _get_client() -> httpx.AsyncClient:
-    """Get or create an AsyncClient for the current context/event loop."""
-    try:
-        return _CLIENT_CVAR.get()
-    except LookupError:
+    """Get or create AsyncClient for the current loop only."""
+    
+    with _CLIENT_LOCK:
+        # Must have a running event loop
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            raise RuntimeError("AsyncClient requires a running event loop")
+        
+        # Check if we have a client for this loop
+        if loop in _LOOP_CLIENTS:
+            client, orig_loop = _LOOP_CLIENTS[loop]
+            if not client.is_closed and orig_loop == loop:
+                return client
+            else:
+                # Client is closed or loop mismatch, remove it from the cache
+                del _LOOP_CLIENTS[loop]
+        
+        # Create a new client for this loop
         if _HAS_CACHE and _FILE_CACHE is not None:
-            c = AsyncClient(cache=_FILE_CACHE, timeout=15.0)
+            client = AsyncClient(cache=_FILE_CACHE, timeout=15.0)
         else:
-            c = httpx.AsyncClient(timeout=15.0)
-        _CLIENT_CVAR.set(c)
-        return c
+            client = httpx.AsyncClient(timeout=15.0)
+        
+        # Store client with its originating loop
+        _LOOP_CLIENTS[loop] = (client, loop)
+        return client
 
 
 def _get_limiter(api_key: str | None) -> AsyncLimiter:
     key = api_key or "anonymous"
     loop = asyncio.get_running_loop()
     with _LIM_LOCK:
-        per_loop = _LIMITERS.setdefault(loop, {})
+        per_loop = _LIMITERS.setdefault(loop, collections.OrderedDict())
         if key not in per_loop:
             per_loop[key] = AsyncLimiter(4, 60)
+            # LRU eviction: keep only 32 most recent limiters
+            while len(per_loop) > 32:
+                per_loop.popitem(last=False)
+        else:
+            # Move to end (most recently used)
+            per_loop.move_to_end(key)
         return per_loop[key]
 
 
@@ -77,13 +101,17 @@ async def aget(url: str, *, timeout: float = 15.0, ttl: int = 900, api_key: str 
         return await client.get(url, timeout=timeout, headers=headers)
 
 
-async def apost(url: str, json: dict, *, timeout: float = 5.0, ttl: int = 900, api_key: str | None = None) -> httpx.Response:
+async def apost(url: str, json: dict, *, timeout: float = 5.0, ttl: int = 900, api_key: str | None = None, headers: dict | None = None) -> httpx.Response:
     """Async POST with caching and rate limiting."""
     client = _get_client()
     limiter = _get_limiter(api_key)
     
     # Add cache control headers if caching is available
-    headers = {"Cache-Control": f"max-age={ttl}"} if _HAS_CACHE else None
+    if _HAS_CACHE and headers is None:
+        headers = {}
+    if _HAS_CACHE and headers is not None:
+        headers = headers.copy()
+        headers["Cache-Control"] = f"max-age={ttl}"
     
     async with limiter:
         return await client.post(url, json=json, timeout=timeout, headers=headers)
@@ -92,24 +120,27 @@ async def apost(url: str, json: dict, *, timeout: float = 5.0, ttl: int = 900, a
 @atexit.register
 def _close_all_clients() -> None:
     """Best effort cleanup on exit."""
-    try:
-        client = _CLIENT_CVAR.get(None)
-    except LookupError:
-        client = None
-    if client and not client.is_closed:
-        try:
-            # Try to use existing loop if available
-            loop = asyncio.get_running_loop()
-            # Schedule cleanup in the existing loop
-            loop.create_task(client.aclose())
-        except RuntimeError:
-            # No loop running, create minimal cleanup
-            # Note: This may still cause warnings but avoids hanging
+    
+    # Close all per-loop clients
+    for client, orig_loop in list(_LOOP_CLIENTS.values()):
+        if client and not client.is_closed:
             try:
-                import weakref
-                weakref.finalize(client, lambda: None)  # Let GC handle it
-            except:
-                pass  # Best effort cleanup
+                # Try to get current running loop
+                current_loop = asyncio.get_running_loop()
+                
+                # If client's original loop matches current loop and loop is not closed
+                if orig_loop == current_loop and not orig_loop.is_closed():
+                    # Schedule cleanup in the existing loop
+                    current_loop.create_task(client.aclose())
+                else:
+                    # Different loop or closed loop, use asyncio.run
+                    asyncio.run(client.aclose())
+            except RuntimeError:
+                # No loop running, use asyncio.run for cleanup
+                try:
+                    asyncio.run(client.aclose())
+                except Exception:
+                    pass  # Best effort cleanup
 
 
 __all__ = ["aget", "apost"] 

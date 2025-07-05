@@ -23,12 +23,19 @@ log = logging.getLogger("ioc_checker")
 
 
 def aggregate_verdict(results: list[IOCResult]) -> IOCStatus:
-    """Aggregate multiple IOC results into a single verdict."""
-    if any(r.status == IOCStatus.MALICIOUS for r in results):
-        return IOCStatus.MALICIOUS
-    elif any(r.status == IOCStatus.ERROR for r in results):
+    """Aggregate multiple IOC results into a single verdict.
+    
+    Precedence logic:
+    1. ERROR - if any provider errors exist (even with malicious results)
+    2. MALICIOUS - if any provider reports malicious (without errors)
+    3. UNSUPPORTED - if all providers are unsupported
+    4. SUCCESS - if all providers report success/clean
+    """
+    if any(r.status == IOCStatus.ERROR for r in results):
         return IOCStatus.ERROR
-    elif any(r.status == IOCStatus.UNSUPPORTED for r in results) and not any(r.status == IOCStatus.ERROR for r in results):
+    elif any(r.status == IOCStatus.MALICIOUS for r in results):
+        return IOCStatus.MALICIOUS
+    elif any(r.status == IOCStatus.UNSUPPORTED for r in results) and not any(r.status == IOCStatus.SUCCESS for r in results):
         return IOCStatus.UNSUPPORTED
     else:
         return IOCStatus.SUCCESS
@@ -79,9 +86,11 @@ async def scan_ioc(ioc: str, ioc_type: str, provider_list: list | None = None) -
     results = await asyncio.gather(*tasks, return_exceptions=True)
     
     scan_results: Dict[str, IOCResult] = {}
+    exception_counter = 0
     for item in results:
         if isinstance(item, Exception):
-            scan_results["unknown"] = IOCResult(
+            exception_counter += 1
+            scan_results[f"provider_error_{exception_counter}"] = IOCResult(
                 ioc=ioc,
                 ioc_type=ioc_type,
                 status=IOCStatus.ERROR,
@@ -103,10 +112,15 @@ def scan_ioc_sync(ioc: str, ioc_type: str) -> Dict[str, IOCResult]:
     from providers import get_providers
     
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
         raise RuntimeError("scan_ioc_sync cannot be called from an async loop")
-    except RuntimeError:
+    except RuntimeError as e:
+        # Only raise if we actually found a running loop
+        if "scan_ioc_sync cannot be called from an async loop" in str(e):
+            raise
+        # Otherwise, no loop is running, which is what we want
         pass
+    
     return asyncio.run(scan_ioc(ioc, ioc_type, get_providers()))
 
 

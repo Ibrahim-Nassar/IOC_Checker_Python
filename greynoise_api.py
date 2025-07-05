@@ -9,6 +9,7 @@ from ioc_types import IOCResult, IOCStatus
 
 class GreyNoiseProvider:
     NAME = "greynoise"
+    SUPPORTED_TYPES = {"ip"}
 
     def __init__(self, api_key: str | None = None, timeout: float = 5.0):
         self._key = api_key or os.getenv("GREYNOISE_API_KEY")

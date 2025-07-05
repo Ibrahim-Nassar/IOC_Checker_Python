@@ -25,12 +25,26 @@ def _save(data: dict) -> None:
     tmp = _PATH.with_suffix(".tmp")
     with tmp.open("w") as fh:
         json.dump(data, fh)
+        fh.flush()
+        try:
+            os.fsync(fh.fileno())
+        except (AttributeError, OSError) as e:
+            # Cross-platform safety: some systems don't support fsync
+            import logging
+            logging.debug(f"fsync not supported or failed: {e}")
     tmp.replace(_PATH)
 
 def increment(key: str, amount: int = 1) -> None:
+    """Deprecated: Use increment_provider() instead for consistent date-scoped tracking."""
+    import warnings
+    warnings.warn("increment() is deprecated, use increment_provider() instead", 
+                  DeprecationWarning, stacklevel=2)
+    # Convert to date-scoped format to avoid data structure collision
     with _LOCK:
         data = _load()
-        data[key] = data.get(key, 0) + amount
+        today = _today_key()
+        day_data = data.setdefault(today, {})
+        day_data[key] = day_data.get(key, 0) + amount
         _save(data)
 
 def _today_key() -> str:
@@ -50,8 +64,11 @@ def remaining(provider: str) -> str:
     limit = DAILY_LIMITS.get(provider)
     if limit is None:
         return "n/a"
-    data = _load().get(_today_key(), {})
-    used = data.get(provider, 0)
-    return str(max(limit - used, 0))
+    
+    with _LOCK:
+        data = _load()
+        today_data = data.get(_today_key(), {})
+        used = today_data.get(provider, 0)
+        return str(max(limit - used, 0))
 
 __all__ = ["increment", "increment_provider", "remaining", "DAILY_LIMITS"] 

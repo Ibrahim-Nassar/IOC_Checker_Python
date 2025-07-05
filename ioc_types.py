@@ -15,7 +15,10 @@ except ImportError:
     from dataclasses import dataclass
     _HAS_PYDANTIC = False
 
-import regex as re
+try:
+    import regex as re
+except ImportError:
+    import re  # TODO: Add regex to [tool.poetry.dependencies] OR leave fallback comment
 import ipaddress
 import urllib.parse
 from typing import Callable, Dict, Tuple
@@ -84,9 +87,24 @@ def _extract_ip(v: str) -> str:
     m = re.search(r"(?:\d{1,3}\.){3}\d{1,3}", v)
     return m.group(0) if m else v
 
-def _strip_port(v:str)->str:
-    if v.startswith('[') and ']:' in v: return v.split(']:')[0][1:]
-    if v.count(':')==1: return v.split(':')[0]
+def _strip_port(v: str) -> str:
+    """Strip port from IP address, handling both IPv4 and IPv6."""
+    # Handle bracketed IPv6 with port: [2001:db8::1]:80
+    if v.startswith('[') and ']:' in v:
+        return v.split(']:')[0][1:]
+    
+    # Handle raw IPv6 with port: 2001:db8::1:80
+    # Only strip the last colon if there are more than two colons (IPv6 indicator)
+    colon_count = v.count(':')
+    if colon_count > 2:
+        # This is likely IPv6 with port, strip the last :port
+        return v.rsplit(':', 1)[0]
+    
+    # Handle IPv4 with port: 192.168.1.1:80
+    if colon_count == 1:
+        return v.split(':')[0]
+    
+    # No port found or ambiguous case
     return v
 
 def _valid_ip(v:str)->bool:

@@ -65,6 +65,7 @@ def get_providers() -> list:
 def refresh() -> None:
     """Reset the cached provider instances, forcing re-instantiation on next get_providers() call."""
     global _instances
-    _instances = None
+    with _lock:
+        _instances = None
 
 __all__ = ["PROV_CLASSES", "get_providers", "PROVIDERS", "refresh"] 

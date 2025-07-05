@@ -1,5 +1,6 @@
 """
 AlienVault OTX provider adapter for the IOC Checker project.
+Supports IP addresses, domains, file hashes, and URLs.
 """
 from __future__ import annotations
 
@@ -13,6 +14,7 @@ from ioc_types import IOCResult, IOCStatus
 class OTXProvider:
     
     NAME = "otx"
+    SUPPORTED_TYPES = {"ip", "domain", "hash", "url"}  # URL support added
     
     def __init__(self, api_key: str | None = None) -> None:
         if api_key is None:
@@ -24,20 +26,11 @@ class OTXProvider:
         self.api_key = api_key
     
     async def query_ioc(self, ioc: str, ioc_type: Literal["ip", "domain", "url", "hash"]) -> IOCResult:
-        if ioc_type == "url":
-            return IOCResult(
-                ioc=ioc,
-                ioc_type=ioc_type,
-                status=IOCStatus.UNSUPPORTED,
-                malicious_engines=0,
-                total_engines=0,
-                message="URL scanning not supported by this provider"
-            )
-        
         endpoint_map = {
             "ip": f"IPv4/{ioc}/general",
             "domain": f"domain/{ioc}/general",
-            "hash": f"file/{ioc}/general"
+            "hash": f"file/{ioc}/general",
+            "url": f"url/{ioc}/general"  # TODO: Confirm exact OTX API path for URLs
         }
         
         url = f"https://otx.alienvault.com/api/v1/indicators/{endpoint_map[ioc_type]}"

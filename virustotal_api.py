@@ -7,22 +7,19 @@ import os
 import base64
 from typing import Literal
 
-from async_cache import aget
+from providers_base import BaseProvider
 from ioc_types import IOCResult, IOCStatus
 
 
-class VirusTotalProvider:
+class VirusTotalProvider(BaseProvider):
     
     NAME = "virustotal"
+    SUPPORTED_TYPES = {"ip", "domain", "url", "hash"}
     
     def __init__(self, api_key: str | None = None) -> None:
         if api_key is None:
             api_key = os.getenv("VIRUSTOTAL_API_KEY") or os.getenv("VT_API_KEY")
-        
-        if not api_key:
-            raise RuntimeError("VirusTotal API key not found in environment variables")
-        
-        self.api_key = api_key
+        super().__init__(api_key, timeout=5.0)
     
     def _encode_url_for_vt(self, url: str) -> str:
         """Encode URL for VirusTotal API: UTF-8, lowercase, strip, base64url without padding."""
@@ -45,68 +42,26 @@ class VirusTotalProvider:
             endpoint = endpoint_map[ioc_type]
         
         url = f"https://www.virustotal.com/api/v3{endpoint}"
-        headers = {"x-apikey": self.api_key}
+        headers = {"x-apikey": self._key}
         
         try:
-            resp = await aget(url, headers=headers, timeout=5.0, api_key=self.api_key)
-            
-            if resp.status_code != 200:
-                return IOCResult(
-                    ioc=ioc,
-                    ioc_type=ioc_type,
-                    status=IOCStatus.ERROR,
-                    malicious_engines=0,
-                    total_engines=0,
-                    message=f"HTTP {resp.status_code}"
-                )
-            
-            data = resp.json()
+            data = await self._safe_request(url, headers=headers)
             
             if "data" not in data or "attributes" not in data["data"]:
-                return IOCResult(
-                    ioc=ioc,
-                    ioc_type=ioc_type,
-                    status=IOCStatus.ERROR,
-                    malicious_engines=0,
-                    total_engines=0,
-                    message="Unexpected API response structure"
-                )
+                return self._create_error_result(ioc, ioc_type, "Unexpected API response structure")
             
             stats = data["data"]["attributes"].get("last_analysis_stats", {})
             
             if not stats:
-                return IOCResult(
-                    ioc=ioc,
-                    ioc_type=ioc_type,
-                    status=IOCStatus.ERROR,
-                    malicious_engines=0,
-                    total_engines=0,
-                    message="Missing analysis statistics in response"
-                )
+                return self._create_error_result(ioc, ioc_type, "Missing analysis statistics in response")
             
             malicious_engines = stats.get("malicious", 0)
             total_engines = sum(stats.values())
             
-            status = IOCStatus.MALICIOUS if malicious_engines > 0 else IOCStatus.SUCCESS
-            
-            return IOCResult(
-                ioc=ioc,
-                ioc_type=ioc_type,
-                status=status,
-                malicious_engines=malicious_engines,
-                total_engines=total_engines,
-                message=""
-            )
+            return self._create_success_result(ioc, ioc_type, malicious_engines, total_engines)
             
         except Exception as e:
-            return IOCResult(
-                ioc=ioc,
-                ioc_type=ioc_type,
-                status=IOCStatus.ERROR,
-                malicious_engines=0,
-                total_engines=0,
-                message=str(e)
-            )
+            return self._create_error_result(ioc, ioc_type, str(e))
 
 
 __all__ = ["VirusTotalProvider"]

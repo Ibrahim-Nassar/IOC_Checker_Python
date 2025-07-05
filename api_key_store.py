@@ -4,7 +4,11 @@ Utility module to persist API keys for IOC Checker.
 
 Priority order:
 1. keyring backend (service name: "ioc_checker").
-2. JSON fallback at ~/.config/ioc_checker/keys.json
+2. JSON fallback at ~/.config/ioc_checker/keys.json (encrypted with Fernet)
+
+JSON fallback uses Fernet encryption with a key stored in the keyring or 
+generated automatically. For headless usage, set the environment variable
+IOC_CHECKER_FERNET_KEY to provide the encryption key directly.
 
 Public API
 ----------
@@ -20,7 +24,17 @@ import os
 from pathlib import Path
 from typing import Dict, Optional
 
+# Encryption support
+try:
+    from cryptography.fernet import Fernet
+    _HAS_FERNET = True
+except ImportError:
+    logging.warning("cryptography not available - encryption disabled. Install with: pip install cryptography")
+    _HAS_FERNET = False
+    Fernet = None
+
 SERVICE_NAME = "ioc_checker"
+ENCRYPTION_KEY_NAME = "ioc_checker_fernet_key"
 
 # ---------------------------------------------------------------------------
 # Optional keyring backend
@@ -34,6 +48,78 @@ except Exception as exc:  # pragma: no cover – import failure
     keyring = None  # type: ignore
     KeyringError = Exception  # type: ignore
     _KEYRING_AVAILABLE = False
+
+# ---------------------------------------------------------------------------
+# Encryption key management
+# ---------------------------------------------------------------------------
+def _get_encryption_key() -> bytes | None:
+    """Get or generate encryption key for JSON fallback."""
+    if not _HAS_FERNET:
+        return None
+    
+    # Try environment variable first (for headless usage)
+    env_key = os.getenv("IOC_CHECKER_FERNET_KEY")
+    if env_key:
+        try:
+            return env_key.encode('utf-8')
+        except Exception:
+            logging.warning("Invalid IOC_CHECKER_FERNET_KEY environment variable")
+    
+    # Try keyring
+    if _KEYRING_AVAILABLE:
+        try:
+            stored_key = keyring.get_password(SERVICE_NAME, ENCRYPTION_KEY_NAME)
+            if stored_key:
+                return stored_key.encode('utf-8')
+        except KeyringError:
+            pass
+    
+    # Generate new key
+    try:
+        key = Fernet.generate_key()
+        if _KEYRING_AVAILABLE:
+            try:
+                keyring.set_password(SERVICE_NAME, ENCRYPTION_KEY_NAME, key.decode('utf-8'))
+            except KeyringError:
+                logging.warning("Failed to store encryption key in keyring")
+        return key
+    except Exception as e:
+        logging.warning(f"Failed to generate encryption key: {e}")
+        return None
+
+def _encrypt_value(value: str) -> str:
+    """Encrypt a value using Fernet."""
+    if not _HAS_FERNET:
+        return value
+    
+    key = _get_encryption_key()
+    if not key:
+        return value
+    
+    try:
+        f = Fernet(key)
+        encrypted = f.encrypt(value.encode('utf-8'))
+        return encrypted.decode('utf-8')
+    except Exception as e:
+        logging.warning(f"Failed to encrypt value: {e}")
+        return value
+
+def _decrypt_value(encrypted_value: str) -> str | None:
+    """Decrypt a value using Fernet."""
+    if not _HAS_FERNET:
+        return encrypted_value
+    
+    key = _get_encryption_key()
+    if not key:
+        return encrypted_value
+    
+    try:
+        f = Fernet(key)
+        decrypted = f.decrypt(encrypted_value.encode('utf-8'))
+        return decrypted.decode('utf-8')
+    except Exception as e:
+        logging.warning(f"Failed to decrypt value (key may have changed): {e}")
+        return None
 
 # ---------------------------------------------------------------------------
 # JSON fallback storage (~/.config/ioc_checker/keys.json)
@@ -56,7 +142,18 @@ def _load_all_fallback() -> Dict[str, str]:
     try:
         with _JSON_PATH.open("r", encoding="utf-8") as fp:
             data = json.load(fp) or {}
-            return {str(k): str(v) for k, v in data.items()}
+            # Decrypt values if encryption is available
+            decrypted_data = {}
+            for k, v in data.items():
+                if _HAS_FERNET:
+                    decrypted = _decrypt_value(str(v))
+                    if decrypted is not None:
+                        decrypted_data[str(k)] = decrypted
+                    else:
+                        logging.warning(f"Failed to decrypt key {k}, skipping")
+                else:
+                    decrypted_data[str(k)] = str(v)
+            return decrypted_data
     except (json.JSONDecodeError, OSError):
         # Corrupted file – rename and start fresh.
         try:
@@ -73,9 +170,17 @@ def _save_all_fallback(data: Dict[str, str]) -> None:
     # Create the file with secure permissions if it doesn't exist
     _JSON_PATH.touch(mode=0o600, exist_ok=True)
     
+    # Encrypt values before saving
+    encrypted_data = {}
+    for k, v in data.items():
+        if _HAS_FERNET:
+            encrypted_data[k] = _encrypt_value(v)
+        else:
+            encrypted_data[k] = v
+    
     tmp = _JSON_PATH.with_suffix(".tmp")
     with tmp.open("w", encoding="utf-8") as fp:
-        json.dump(data, fp, indent=2)
+        json.dump(encrypted_data, fp, indent=2)
         fp.flush()
         os.fsync(fp.fileno())
     

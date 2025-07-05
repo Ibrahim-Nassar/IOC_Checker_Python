@@ -4,14 +4,13 @@ from __future__ import annotations
 from async_cache import apost
 from ioc_types import IOCResult, IOCStatus
 
-_SUPPORTED_TYPES = {"ip", "domain", "url", "hash"}
-
 
 class ThreatFoxProvider:
     NAME = "threatfox"
+    SUPPORTED_TYPES = {"ip", "domain", "url", "hash"}
 
     async def query_ioc(self, ioc: str, ioc_type: str) -> IOCResult:
-        if ioc_type.lower() not in _SUPPORTED_TYPES:
+        if ioc_type.lower() not in self.SUPPORTED_TYPES:
             return IOCResult(
                 ioc=ioc,
                 ioc_type=ioc_type,

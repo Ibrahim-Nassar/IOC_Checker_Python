@@ -9,6 +9,7 @@ from ioc_types import IOCResult, IOCStatus
 
 class AbuseIPDBProvider:
     NAME = "abuseipdb"
+    SUPPORTED_TYPES = {"ip"}
 
     def __init__(self, api_key: str | None = None):
         self._key = api_key or os.getenv("ABUSEIPDB_API_KEY")
