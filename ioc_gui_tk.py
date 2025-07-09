@@ -16,7 +16,7 @@ from pathlib import Path
 import functools
 import csv
 from datetime import datetime
-
+from logging.handlers import RotatingFileHandler
 from ioc_types import IOCStatus, IOCResult, detect_ioc_type, validate_ioc
 from providers import get_providers
 from ioc_checker import aggregate_verdict, scan_ioc
@@ -39,6 +39,43 @@ except (ImportError, locale.Error):
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("gui")
+
+def _safe_task_id() -> str:
+    """Return current asyncio task id or 'main-thread' if no loop."""
+    try:
+        t = asyncio.current_task()
+        return str(id(t)) if t else "main-thread"
+    except RuntimeError:
+        return "main-thread"
+
+def setup_verbose_logging():
+    """Configure verbose logging for batch processing debugging."""
+    # Create rotating file handler for debug logs
+    debug_log_path = Path("ioc_gui_debug.log")
+    handler = RotatingFileHandler(
+        debug_log_path, 
+        maxBytes=5*1024*1024,  # 5 MB
+        backupCount=3
+    )
+    
+    # Set format to include more detail
+    formatter = logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(name)s:%(lineno)d - %(message)s"
+    )
+    handler.setFormatter(formatter)
+    
+    # Add handler to root logger
+    root_logger = logging.getLogger()
+    root_logger.addHandler(handler)
+    
+    # Set debug level if environment variable is set
+    if os.environ.get("IOC_GUI_DEBUG") == "1":
+        root_logger.setLevel(logging.DEBUG)
+        log.info("Debug logging enabled via IOC_GUI_DEBUG=1")
+    else:
+        root_logger.setLevel(logging.INFO)
+    
+    log.info(f"Verbose logging configured, writing to {debug_log_path}")
 
 AVAILABLE_PROVIDERS = {
     'virustotal': 'VirusTotal',
@@ -84,6 +121,9 @@ class ToolTip:
 class IOCCheckerGUI:
     
     def __init__(self):
+        # Set up verbose logging first
+        setup_verbose_logging()
+        
         self.root = tk.Tk()
         self.root.title("IOC Checker - Enhanced GUI")
         self.root.geometry("1200x800")
@@ -94,6 +134,7 @@ class IOCCheckerGUI:
         self.q = queue.Queue()
         self.batch_task = None  # Track current batch task for cancellation
         self.processed_iocs = set()  # Track processed IOCs to prevent duplicates
+        self._cached_providers = None  # Cache providers during batch processing
         
         self.provider_config = {
             'virustotal': False,
@@ -436,8 +477,8 @@ class IOCCheckerGUI:
         filename = filedialog.askopenfilename(
             title="Select IOC file",
             filetypes=[
-                ("Text files", "*.txt"),
                 ("CSV files", "*.csv"),
+                ("Text files", "*.txt"),
                 ("All files", "*.*")
             ]
         )
@@ -504,11 +545,15 @@ class IOCCheckerGUI:
         
         selected_providers = self._selected_providers()
         if not selected_providers:
-            messagebox.showerror("Error", "No valid providers available for scanning.")
+            messagebox.showerror("Error", "No valid providers available for scanning.\n\nPlease go to Tools > Configure Providers to select which providers to use.")
             return
         
         placeholder = self.out.insert('', 'end', values=tuple([ioc_type, ioc_value, "Processing...", ""] + [""] * len(selected_providers)))
         self.root.update()
+        
+        if self.loop is None:
+            messagebox.showerror("Error", "Event loop not initialized")
+            return
         
         future = asyncio.run_coroutine_threadsafe(
             scan_ioc(ioc_value, ioc_type, selected_providers), self.loop
@@ -526,7 +571,8 @@ class IOCCheckerGUI:
             self.root.after(0, lambda: self.update_table({}, ioc, ioc_type, placeholder, error_msg))
     
     def update_table(self, results, ioc, ioc_type, placeholder=None, error_msg=None):
-        active_providers = self._selected_providers()
+        # Use cached providers if available (during batch processing), otherwise get fresh providers
+        active_providers = getattr(self, '_cached_providers', None) or self._selected_providers()
         
         if error_msg:
             row_values = [ioc_type, ioc, "Error", error_msg] + [""] * len(active_providers)
@@ -571,11 +617,12 @@ class IOCCheckerGUI:
             messagebox.showerror("Error", "Please select a file.")
             return
         
-        if not os.path.exists(filename):
-            messagebox.showerror("Error", "File not found.")
+        # Extra safety: make sure providers are chosen *before* we disable UI
+        if not self._prompt_provider_selection_if_needed():
             return
         
-        if not self._prompt_provider_selection_if_needed():
+        if not os.path.exists(filename):
+            messagebox.showerror("Error", "File not found.")
             return
         
         # Update columns before processing
@@ -585,13 +632,16 @@ class IOCCheckerGUI:
         
         selected_providers = self._selected_providers()
         if not selected_providers:
-            messagebox.showerror("Error", "No valid providers available for scanning.")
+            messagebox.showerror("Error", "No valid providers available for scanning.\n\nPlease go to Tools > Configure Providers to select which providers to use.")
+            self._reset_batch_ui()
             return
         
         # Enable/disable buttons
         self.process_button.config(state="disabled")
         self.stop_button.config(state="normal")
         self.progress_label.config(text="Loading IOCs...")
+        log.debug("progress_label set to: 'Loading IOCs...'")
+        self.root.update()
         
         try:
             from loader import load_iocs
@@ -614,7 +664,6 @@ class IOCCheckerGUI:
                     return
                 elif action == 'skip':
                     # Filter out unsupported IOCs
-                    from ioc_types import validate_ioc
                     unsupported_values = {ioc['normalized'] for ioc in unsupported_iocs}
                     original_count = len(iocs)
                     filtered_iocs = []
@@ -652,32 +701,53 @@ class IOCCheckerGUI:
             self.root.update()
             
             async def process_batch() -> None:
+                task_id = _safe_task_id()
+                log.debug(f"[{task_id}] process_batch() starting with {len(iocs)} IOCs")
+                
                 valid_count = 0
                 invalid_count = 0
                 duplicate_count = 0
                 csv_results = []
+                completed_count = 0
+                progress_lock = asyncio.Lock()  # Protect progress updates
                 
-                try:
-                    for i, ioc_data in enumerate(iocs):
-                        ioc_value = ioc_data.get('value', str(ioc_data))
-                        
-                        # Check for duplicates
-                        if ioc_value in self.processed_iocs:
+                # Cache providers to avoid repeated calls during concurrent processing
+                self._cached_providers = selected_providers
+                log.debug(f"[{task_id}] Cached {len(selected_providers)} providers for batch processing")
+                
+                async def process_single_ioc(idx: int, ioc_data: dict) -> None:
+                    task_id = _safe_task_id()
+                    task_name = f"Task-{task_id}"
+                    nonlocal valid_count, invalid_count, duplicate_count, completed_count
+                    
+                    ioc_value = ioc_data.get('value', str(ioc_data))
+                    log.debug(f"[{task_name}] process_single_ioc() starting for idx={idx}, ioc='{ioc_value}'")
+                    
+                    # Check for duplicates
+                    if ioc_value in self.processed_iocs:
+                        log.debug(f"[{task_name}] idx={idx}, ioc='{ioc_value}' - DUPLICATE detected, skipping")
+                        async with progress_lock:
                             duplicate_count += 1
-                            continue
-                        
-                        self.processed_iocs.add(ioc_value)
-                        
-                        # Update progress
-                        self.root.after(0, lambda idx=i, total=len(iocs): 
-                                      self.progress_label.config(text=f"Processing {idx+1}/{total} IOCs..."))
-                        
-                        # Validate each IOC before processing
-                        is_valid, ioc_type, normalized_ioc, error_message = validate_ioc(ioc_value)
-                        
-                        if is_valid:
-                            valid_count += 1
+                        return
+                    
+                    self.processed_iocs.add(ioc_value)
+                    log.debug(f"[{task_name}] idx={idx}, ioc='{ioc_value}' - passed duplicate check")
+                    
+                    # Validate each IOC before processing
+                    log.debug(f"[{task_name}] idx={idx}, ioc='{ioc_value}' - starting validation")
+                    is_valid, ioc_type, normalized_ioc, error_message = validate_ioc(ioc_value)
+                    
+                    if is_valid:
+                        log.debug(f"[{task_name}] idx={idx}, ioc='{ioc_value}' - VALID (type={ioc_type}, normalized='{normalized_ioc}')")
+                        try:
+                            # Scan IOC with selected providers (no extra timeout - scan_ioc has per-provider timeouts)
+                            log.debug(f"[{task_name}] idx={idx}, ioc='{normalized_ioc}' - calling scan_ioc() with {len(selected_providers)} providers")
                             results = await scan_ioc(normalized_ioc, ioc_type, selected_providers)
+                            log.debug(f"[{task_name}] idx={idx}, ioc='{normalized_ioc}' - scan_ioc() returned {len(results)} results")
+                            
+                            async with progress_lock:
+                                valid_count += 1
+                                completed_count += 1
                             
                             # Determine overall verdict for CSV
                             from ioc_checker import aggregate_verdict
@@ -696,20 +766,83 @@ class IOCCheckerGUI:
                                 'verdict': verdict_text,
                                 'flagged_by': ', '.join(flagged_providers)
                             })
+                            log.debug(f"[{task_name}] idx={idx}, ioc='{normalized_ioc}' - verdict='{verdict_text}', flagged_by={flagged_providers}")
                             
-                            self.root.after(0, lambda r=results, norm_ioc=normalized_ioc, t=ioc_type: 
-                                          self.update_table(r, norm_ioc, t))
-                        else:
-                            invalid_count += 1
+                            # Update UI with explicit providers to avoid _selected_providers() call
+                            log.debug(f"[{task_name}] idx={idx}, ioc='{normalized_ioc}' - scheduling GUI update")
+                            self.root.after(0, lambda r=results, norm_ioc=normalized_ioc, t=ioc_type, providers=selected_providers: 
+                                          self.update_table_with_cached_providers(r, norm_ioc, t, providers))
+                        
+                        except Exception as e:
+                            log.debug(f"[{task_name}] idx={idx}, ioc='{normalized_ioc}' - scan_ioc() raised exception: {str(e)}")
+                            async with progress_lock:
+                                invalid_count += 1
+                                completed_count += 1
+                            
                             csv_results.append({
-                                'type': 'invalid',
-                                'ioc': ioc_value,
+                                'type': ioc_type,
+                                'ioc': normalized_ioc,
                                 'verdict': 'error',
-                                'flagged_by': f'Validation Error: {error_message}'
+                                'flagged_by': f'Scan Error: {str(e)}'
                             })
-                            # Add invalid IOC to results table with error message
-                            self.root.after(0, lambda val=ioc_value, err=error_message: 
-                                          self.update_table({}, val, "invalid", None, f"Validation Error: {err}"))
+                            self.root.after(0, lambda val=normalized_ioc, t=ioc_type, err=str(e): 
+                                          self.update_table({}, val, t, None, f"Scan Error: {err}"))
+                    else:
+                        log.debug(f"[{task_name}] idx={idx}, ioc='{ioc_value}' - INVALID: {error_message}")
+                        async with progress_lock:
+                            invalid_count += 1
+                            completed_count += 1
+                        
+                        csv_results.append({
+                            'type': 'invalid',
+                            'ioc': ioc_value,
+                            'verdict': 'error',
+                            'flagged_by': f'Validation Error: {error_message}'
+                        })
+                        # Add invalid IOC to results table with error message
+                        self.root.after(0, lambda val=ioc_value, err=error_message: 
+                                      self.update_table({}, val, "invalid", None, f"Validation Error: {err}"))
+                    
+                    # ── NEW: show progress as soon as we start working on this IOC ──
+                    async with progress_lock:
+                        progress_text = f"Processing {idx+1}/{len(iocs)} IOCs…"
+                        log.debug(f"[{task_name}] idx={idx} - updating progress_label to: '{progress_text}'")
+                        self.root.after(
+                            0,
+                            lambda idx=idx: self.progress_label.config(
+                                text=progress_text
+                            ),
+                        )
+                    
+                    log.debug(f"[{task_name}] idx={idx}, ioc='{ioc_value}' - process_single_ioc() completed")
+                
+                try:
+                    # Create all tasks immediately - no semaphore to bottleneck them
+                    # Use create_task to start them running immediately 
+                    log.debug(f"[{task_id}] Creating {len(iocs)} tasks for parallel processing")
+                    tasks = []
+                    for i, ioc_data in enumerate(iocs):
+                        task = asyncio.create_task(process_single_ioc(i, ioc_data))
+                        tasks.append(task)
+                        log.debug(f"[{task_id}] Created task for IOC idx={i}: {task}")
+                    
+                    # Apply concurrency limit AFTER tasks are created and running
+                    semaphore = asyncio.Semaphore(6)
+                    log.debug(f"[{task_id}] Created semaphore with limit=6")
+                    
+                    async def run_with_semaphore(task):
+                        task_id = _safe_task_id()
+                        log.debug(f"[{task_id}] Acquiring semaphore for task: {task}")
+                        async with semaphore:
+                            log.debug(f"[{task_id}] Semaphore acquired, running task: {task}")
+                            result = await task
+                            log.debug(f"[{task_id}] Task completed, releasing semaphore: {task}")
+                            return result
+                    
+                    log.debug(f"[{task_id}] Starting asyncio.gather() with semaphore-wrapped tasks")
+                    # Wait for all tasks with bounded concurrency
+                    await asyncio.gather(*[run_with_semaphore(task) for task in tasks])
+                    log.debug(f"[{task_id}] All tasks completed successfully")
                     
                     # Export results to CSV
                     csv_path = self._export_batch_results(filename, csv_results)
@@ -721,9 +854,11 @@ class IOCCheckerGUI:
                     if csv_path:
                         summary_message += f"\n\nResults exported to: {csv_path}"
                     
+                    log.debug(f"[{task_id}] process_batch() completed successfully, scheduling completion callback")
                     self.root.after(0, lambda: self._batch_complete(summary_message))
                     
                 except asyncio.CancelledError:
+                    log.debug(f"[{task_id}] process_batch() cancelled")
                     # Export partial results if cancelled
                     if csv_results:
                         csv_path = self._export_batch_results(filename, csv_results, cancelled=True)
@@ -734,6 +869,15 @@ class IOCCheckerGUI:
                     else:
                         self.root.after(0, lambda: self._batch_cancelled("Batch processing cancelled."))
                     raise
+                finally:
+                    # Clear cached providers
+                    self._cached_providers = None
+                    log.debug(f"[{task_id}] process_batch() cleanup completed")
+            
+            if self.loop is None:
+                messagebox.showerror("Error", "Event loop not initialized")
+                self._reset_batch_ui()
+                return
             
             self.batch_task = asyncio.run_coroutine_threadsafe(process_batch(), self.loop)
             
@@ -745,6 +889,7 @@ class IOCCheckerGUI:
         """Stop the current batch processing."""
         if self.batch_task and not self.batch_task.done():
             self.batch_task.cancel()
+            log.debug("progress_label set to: 'Cancelling...'")
             self.progress_label.config(text="Cancelling...")
     
     def _batch_complete(self, message):
@@ -761,6 +906,7 @@ class IOCCheckerGUI:
         """Reset UI state after batch completion or cancellation."""
         self.process_button.config(state="normal")
         self.stop_button.config(state="disabled")
+        log.debug("progress_label set to: 'Ready'")
         self.progress_label.config(text="Ready")
         self.batch_task = None
     
@@ -1075,6 +1221,7 @@ class IOCCheckerGUI:
             
             saved_count = 0
             cleared_count = 0
+            errors = []
             
             # Update status labels in real-time
             for var, entry in entries.items():
@@ -1082,29 +1229,41 @@ class IOCCheckerGUI:
                 original_val = original_values[var]
                 status_label = status_labels[var]
                 
-                if current_val:
-                    # Non-empty value: always save
-                    save_key(var, current_val)
-                    os.environ[var] = current_val
-                    saved_count += 1
-                    status_label.config(text="✓ Saved", foreground="green")
-                    logging.info(f"Saved API key for {var}")
-                elif original_val and not current_val:
-                    # Had a value before, now empty: user intentionally cleared it
-                    save_key(var, "")
-                    os.environ.pop(var, None)
-                    cleared_count += 1
-                    status_label.config(text="✓ Cleared", foreground="orange")
-                    logging.info(f"Cleared API key for {var}")
-                else:
-                    # No change needed
-                    if not current_val and not original_val:
-                        status_label.config(text="", foreground="gray")
-                    else:
+                try:
+                    if current_val:
+                        # Non-empty value: always save
+                        save_key(var, current_val)
+                        os.environ[var] = current_val
+                        saved_count += 1
                         status_label.config(text="✓ Saved", foreground="green")
+                        logging.info(f"Saved API key for {var}")
+                    elif original_val and not current_val:
+                        # Had a value before, now empty: user intentionally cleared it
+                        save_key(var, "")
+                        os.environ.pop(var, None)
+                        cleared_count += 1
+                        status_label.config(text="✓ Cleared", foreground="orange")
+                        logging.info(f"Cleared API key for {var}")
+                    else:
+                        # No change needed
+                        if not current_val and not original_val:
+                            status_label.config(text="", foreground="gray")
+                        else:
+                            status_label.config(text="✓ Saved", foreground="green")
+                except Exception as e:
+                    errors.append(f"{var}: {str(e)}")
+                    status_label.config(text="✗ Error", foreground="red")
+                    logging.error(f"Failed to save API key for {var}: {e}")
             
             # Refresh providers after API key changes
             refresh()
+            
+            # Show results to user
+            if errors:
+                error_msg = f"Failed to save some API keys:\n\n" + "\n".join(errors)
+                error_msg += f"\n\nPlease check file permissions for the configuration directory."
+                messagebox.showerror("Save Failed", error_msg)
+                return  # Don't close dialog on error
             
             # Show detailed success message
             status_parts = []
@@ -1152,6 +1311,7 @@ class IOCCheckerGUI:
                 line = self.q.get_nowait()
                 if line:
                     try:
+                        log.debug(f"progress_label set via queue to: '{str(line)}'")
                         self.progress_label.config(text=str(line))
                     except Exception:
                         pass
@@ -1159,12 +1319,60 @@ class IOCCheckerGUI:
             pass
         except Exception as e:
             try:
-                self.progress_label.config(text=f"Error: {str(e)}")
+                error_text = f"Error: {str(e)}"
+                log.debug(f"progress_label set to error: '{error_text}'")
+                self.progress_label.config(text=error_text)
             except Exception:
                 pass
         finally:
             self.root.after(100, self._poll_queue)
     
+    def update_table_with_cached_providers(self, results, ioc, ioc_type, providers, placeholder=None, error_msg=None):
+        """Update table with explicitly provided providers to avoid calling _selected_providers()."""
+        task_id = _safe_task_id()
+        log.debug(f"[{task_id}] update_table_with_cached_providers() called for ioc='{ioc}', type='{ioc_type}', error_msg='{error_msg}'")
+        
+        if error_msg:
+            row_values = [ioc_type, ioc, "Error", error_msg] + [""] * len(providers)
+            log.debug(f"[{task_id}] Creating error row for ioc='{ioc}': {row_values}")
+        else:
+            overall_verdict = aggregate_verdict(list(results.values()))
+            flagged_providers = [name for name, result in results.items() 
+                               if result.status == IOCStatus.MALICIOUS]
+            
+            provider_values = []
+            for provider in providers:
+                provider_name = provider.NAME.lower()
+                if provider_name in results:
+                    result = results[provider_name]
+                    status_text = _STATUS_MAP.get(result.status, result.status.name) or "Unknown"
+                    if result.malicious_engines and result.total_engines:
+                        status_text += f" ({result.malicious_engines}/{result.total_engines})"
+                    # Show error message for ERROR status
+                    if result.status == IOCStatus.ERROR and result.message:
+                        status_text += f" - {result.message[:50]}..."
+                    provider_values.append(status_text)
+                else:
+                    provider_values.append("")
+            
+            row_values = [
+                ioc_type,
+                ioc,
+                _STATUS_MAP.get(overall_verdict, overall_verdict.name) or "Unknown",
+                ", ".join(flagged_providers)
+            ] + provider_values
+            log.debug(f"[{task_id}] Creating result row for ioc='{ioc}': verdict={overall_verdict.name}, flagged_by={flagged_providers}")
+        
+        if placeholder and self.out.exists(placeholder):
+            log.debug(f"[{task_id}] Updating existing placeholder row for ioc='{ioc}'")
+            self.out.item(placeholder, values=tuple(row_values))
+        else:
+            log.debug(f"[{task_id}] Inserting new row for ioc='{ioc}'")
+            self.out.insert("", "end", values=tuple(row_values))
+        
+        self.all_results.append(tuple(row_values))
+        log.debug(f"[{task_id}] update_table_with_cached_providers() completed for ioc='{ioc}'")
+
     def run(self):
         self.root.mainloop()
 

@@ -7,6 +7,7 @@ import logging
 import os
 import sys
 from typing import Dict, Literal, Any, cast
+import contextlib
 
 from ioc_types import IOCResult, IOCStatus, detect_ioc_type
 import providers
@@ -48,31 +49,41 @@ async def scan_ioc(ioc: str, ioc_type: str, provider_list: list | None = None) -
         provider_list = get_providers()
 
     async def query_single_provider(provider):
+        provider_name = getattr(provider, "NAME", "unknown")
+        
+        async def _run():
+            return await provider.query_ioc(ioc, ioc_type)
+        
+        task = asyncio.create_task(_run())
         try:
-            if hasattr(provider, 'query_ioc'):
-                result = await provider.query_ioc(ioc, ioc_type)
-                if isinstance(result, IOCResult):
-                    return provider.NAME, result
-                else:
-                    return provider.NAME, IOCResult(
-                        ioc=ioc,
-                        ioc_type=ioc_type,
-                        status=IOCStatus.ERROR,
-                        malicious_engines=0,
-                        total_engines=0,
-                        message="Provider returned invalid result format"
-                    )
+            result = await asyncio.wait_for(task, timeout=15.0)
+            if isinstance(result, IOCResult):
+                return provider_name, result
             else:
-                return provider.NAME, IOCResult(
+                return provider_name, IOCResult(
                     ioc=ioc,
                     ioc_type=ioc_type,
                     status=IOCStatus.ERROR,
                     malicious_engines=0,
                     total_engines=0,
-                    message="Provider does not support async query interface"
+                    message="Provider returned invalid result format"
                 )
+        except asyncio.TimeoutError:
+            task.cancel()
+            with contextlib.suppress(Exception):
+                await task  # ensure it's awaited / cleaned up
+            return provider_name, IOCResult(
+                ioc=ioc,
+                ioc_type=ioc_type,
+                status=IOCStatus.ERROR,
+                malicious_engines=0,
+                total_engines=0,
+                message="Provider timeout (15 seconds exceeded)"
+            )
         except Exception as e:
-            provider_name = getattr(provider, 'NAME', 'unknown')
+            task.cancel()
+            with contextlib.suppress(Exception):
+                await task
             return provider_name, IOCResult(
                 ioc=ioc,
                 ioc_type=ioc_type,
@@ -82,13 +93,55 @@ async def scan_ioc(ioc: str, ioc_type: str, provider_list: list | None = None) -
                 message=str(e)
             )
 
-    tasks = [query_single_provider(p) for p in provider_list]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    tasks = [asyncio.create_task(query_single_provider(p)) for p in provider_list]
+    
+    try:
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+    except asyncio.CancelledError:
+        # Handle external cancellation - create clean error results
+        scan_results = {
+            f"cancelled_{i}": IOCResult(
+                ioc=ioc,
+                ioc_type=ioc_type,
+                status=IOCStatus.ERROR,
+                malicious_engines=0,
+                total_engines=0,
+                message="Batch cancelled"
+            )
+            for i, _ in enumerate(provider_list, 1)
+        }
+        # Cancel all provider tasks and clean up
+        for t in tasks:
+            t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        return scan_results
     
     scan_results: Dict[str, IOCResult] = {}
     exception_counter = 0
     for item in results:
         if isinstance(item, Exception):
+            exception_counter += 1
+            # Handle CancelledError specifically
+            if isinstance(item, asyncio.CancelledError):
+                message = "Operation was cancelled"
+            else:
+                message = str(item)
+            scan_results[f"provider_error_{exception_counter}"] = IOCResult(
+                ioc=ioc,
+                ioc_type=ioc_type,
+                status=IOCStatus.ERROR,
+                malicious_engines=0,
+                total_engines=0,
+                message=message
+            )
+            continue
+
+        # Ensure `item` is the expected tuple format
+        try:
+            provider_name, ioc_result = item  # type: ignore[misc]
+            scan_results[provider_name] = ioc_result
+        except (ValueError, TypeError) as e:
+            # Handle unexpected item format
             exception_counter += 1
             scan_results[f"provider_error_{exception_counter}"] = IOCResult(
                 ioc=ioc,
@@ -96,13 +149,8 @@ async def scan_ioc(ioc: str, ioc_type: str, provider_list: list | None = None) -
                 status=IOCStatus.ERROR,
                 malicious_engines=0,
                 total_engines=0,
-                message=str(item)
+                message=f"Unexpected result format: {type(item).__name__}"
             )
-            continue
-
-        # `item` is the tuple (provider_name, IOCResult)
-        provider_name, ioc_result = item  # type: ignore[misc]
-        scan_results[provider_name] = ioc_result
     
     return scan_results
 

@@ -65,7 +65,7 @@ def _get_encryption_key() -> bytes | None:
         except Exception:
             logging.warning("Invalid IOC_CHECKER_FERNET_KEY environment variable")
     
-    # Try keyring
+    # Try keyring first
     if _KEYRING_AVAILABLE:
         try:
             stored_key = keyring.get_password(SERVICE_NAME, ENCRYPTION_KEY_NAME)
@@ -74,14 +74,43 @@ def _get_encryption_key() -> bytes | None:
         except KeyringError:
             pass
     
-    # Generate new key
+    # Check for existing key in a local file 
+    key_file = _FALLBACK_DIR / ".encryption_key"
+    if key_file.exists():
+        try:
+            with key_file.open("r", encoding="utf-8") as f:
+                existing_key = f.read().strip().encode('utf-8')
+                # Validate the key
+                Fernet(existing_key)  # This will raise if invalid
+                return existing_key
+        except Exception:
+            logging.warning("Existing encryption key file is invalid, generating new one")
+    
+    # Generate new key as last resort
     try:
         key = Fernet.generate_key()
+        
+        # Store in keyring if available
         if _KEYRING_AVAILABLE:
             try:
                 keyring.set_password(SERVICE_NAME, ENCRYPTION_KEY_NAME, key.decode('utf-8'))
             except KeyringError:
                 logging.warning("Failed to store encryption key in keyring")
+        
+        # Always store in local file as backup
+        try:
+            _ensure_fallback_dir()
+            with key_file.open("w", encoding="utf-8") as f:
+                f.write(key.decode('utf-8'))
+            # Set restrictive permissions (Unix only)
+            if os.name != "nt":
+                try:
+                    os.chmod(key_file, 0o600)
+                except OSError:
+                    pass
+        except Exception as e:
+            logging.warning(f"Failed to store encryption key to file: {e}")
+        
         return key
     except Exception as e:
         logging.warning(f"Failed to generate encryption key: {e}")
@@ -142,18 +171,23 @@ def _load_all_fallback() -> Dict[str, str]:
     try:
         with _JSON_PATH.open("r", encoding="utf-8") as fp:
             data = json.load(fp) or {}
-            # Decrypt values if encryption is available
-            decrypted_data = {}
-            for k, v in data.items():
-                if _HAS_FERNET:
+            
+            # If encryption is available, try to decrypt values
+            if _HAS_FERNET:
+                decrypted_data = {}
+                for k, v in data.items():
                     decrypted = _decrypt_value(str(v))
                     if decrypted is not None:
                         decrypted_data[str(k)] = decrypted
                     else:
-                        logging.warning(f"Failed to decrypt key {k}, skipping")
-                else:
-                    decrypted_data[str(k)] = str(v)
-            return decrypted_data
+                        # If decryption fails, try treating as plain text (legacy fallback)
+                        logging.warning(f"Failed to decrypt key {k}, treating as plain text")
+                        decrypted_data[str(k)] = str(v)
+                return decrypted_data
+            else:
+                # No encryption available, treat all as plain text
+                return {str(k): str(v) for k, v in data.items()}
+                
     except (json.JSONDecodeError, OSError):
         # Corrupted file – rename and start fresh.
         try:
@@ -165,31 +199,52 @@ def _load_all_fallback() -> Dict[str, str]:
 
 def _save_all_fallback(data: Dict[str, str]) -> None:
     """Persist *data* atomically to the fallback JSON file."""
-    _ensure_fallback_dir()
+    try:
+        _ensure_fallback_dir()
+        
+        # Create the file if it doesn't exist
+        if not _JSON_PATH.exists():
+            _JSON_PATH.touch(exist_ok=True)
+            # Only set permissions on Unix-like systems
+            if os.name != "nt":  # Skip chmod on Windows
+                try:
+                    os.chmod(_JSON_PATH, 0o600)
+                except OSError:
+                    logging.warning(f"Failed to set permissions on {_JSON_PATH}")
+        
+        # Encrypt values before saving
+        encrypted_data = {}
+        for k, v in data.items():
+            if _HAS_FERNET:
+                encrypted_data[k] = _encrypt_value(v)
+            else:
+                encrypted_data[k] = v
+        
+        tmp = _JSON_PATH.with_suffix(".tmp")
+        with tmp.open("w", encoding="utf-8") as fp:
+            json.dump(encrypted_data, fp, indent=2)
+            fp.flush()
+            os.fsync(fp.fileno())
+        
+        # Set restrictive permissions on temp file (Unix only)
+        if os.name != "nt":  # Skip chmod on Windows
+            try:
+                os.chmod(tmp, 0o600)
+            except OSError:
+                logging.warning(f"Failed to set permissions on temp file")
+        
+        tmp.replace(_JSON_PATH)
+        
+        # Ensure final file also has correct permissions (Unix only)
+        if os.name != "nt":  # Skip chmod on Windows
+            try:
+                os.chmod(_JSON_PATH, 0o600)
+            except OSError:
+                logging.warning(f"Failed to set final permissions on {_JSON_PATH}")
     
-    # Create the file with secure permissions if it doesn't exist
-    _JSON_PATH.touch(mode=0o600, exist_ok=True)
-    
-    # Encrypt values before saving
-    encrypted_data = {}
-    for k, v in data.items():
-        if _HAS_FERNET:
-            encrypted_data[k] = _encrypt_value(v)
-        else:
-            encrypted_data[k] = v
-    
-    tmp = _JSON_PATH.with_suffix(".tmp")
-    with tmp.open("w", encoding="utf-8") as fp:
-        json.dump(encrypted_data, fp, indent=2)
-        fp.flush()
-        os.fsync(fp.fileno())
-    
-    # Set restrictive permissions on temp file (owner read/write only)
-    os.chmod(tmp, 0o600)
-    tmp.replace(_JSON_PATH)
-    
-    # Ensure final file also has correct permissions
-    os.chmod(_JSON_PATH, 0o600)
+    except Exception as e:
+        # Re-raise with more context for GUI error handling
+        raise RuntimeError(f"Failed to save API keys to {_JSON_PATH}: {str(e)}") from e
 
 
 # ---------------------------------------------------------------------------
