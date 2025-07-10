@@ -20,7 +20,7 @@ class TestGUIThreading:
     def test_no_runtime_error_on_parallel_scans(self):
         """Test that 5 parallel scans don't cause RuntimeError: main thread."""
         # Create a mock GUI instance
-        with patch('ioc_gui_tk._LOOP') as mock_loop:
+        with patch('ioc_gui_tk._GUI_LOOP') as mock_loop:
             mock_loop.run_forever = MagicMock()
             
             # Create GUI instance
@@ -92,7 +92,7 @@ class TestGUIThreading:
     
     def test_gui_root_after_usage(self):
         """Test that GUI uses root.after() for thread-safe updates."""
-        with patch('ioc_gui_tk._LOOP') as mock_loop:
+        with patch('ioc_gui_tk._GUI_LOOP') as mock_loop:
             mock_loop.run_forever = MagicMock()
             
             gui = IOCCheckerGUI()
@@ -132,18 +132,18 @@ class TestGUIThreading:
     
     def test_background_loop_reference(self):
         """Test that GUI maintains reference to background loop."""
-        with patch('ioc_gui_tk._LOOP') as mock_loop:
+        with patch('ioc_gui_tk._GUI_LOOP') as mock_loop:
             mock_loop.run_forever = MagicMock()
             
             gui = IOCCheckerGUI()
             
             # Verify that self.loop is set
             assert hasattr(gui, 'loop'), "GUI should have a loop attribute"
-            assert gui.loop is mock_loop, "GUI loop should reference the global _LOOP"
+            assert gui.loop is mock_loop, "GUI loop should reference the global _GUI_LOOP"
     
     def test_concurrent_batch_processing(self):
         """Test that batch processing handles concurrent operations safely."""
-        with patch('ioc_gui_tk._LOOP') as mock_loop:
+        with patch('ioc_gui_tk._GUI_LOOP') as mock_loop:
             mock_loop.run_forever = MagicMock()
             
             gui = IOCCheckerGUI()

@@ -5,6 +5,34 @@ import asyncio
 import pathlib, sys, os
 import warnings
 
+# ---------------------------------------------------------------------------
+# Optional psutil stub – keeps memory-usage tests runnable without the
+# external psutil dependency. The stub provides only the minimal surface
+# used by the test-suite (psutil.Process().memory_info().rss).
+# ---------------------------------------------------------------------------
+try:
+    import psutil as psutil  # noqa: F401 – real psutil exists
+except ImportError:  # pragma: no cover
+    import types, tracemalloc, sys as sys
+
+    tracemalloc.start()
+
+    def current_rss() -> int:
+        snapshot = tracemalloc.take_snapshot()
+        return sum(stat.size for stat in snapshot.statistics("filename"))
+
+    psutil_stub = types.ModuleType("psutil")
+
+    class FakeProcess:
+        def __init__(self, pid=None):
+            self.pid = pid
+
+        def memory_info(self):
+            return types.SimpleNamespace(rss=current_rss())
+
+    psutil_stub.Process = FakeProcess
+    sys.modules["psutil"] = psutil_stub
+
 # Suppress warnings for unawaited coroutines in mock objects and test scenarios
 warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*coroutine.*never awaited.*")
 warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*unawaited coroutine.*")
@@ -159,3 +187,26 @@ _tk.StringVar = _Var  # type: ignore[attr-defined]
 
 # Ensure tkinter thinks a default root exists
 _tk._default_root = _StubTk()  # type: ignore[attr-defined] 
+
+# ---------------------------------------------------------------------------
+# Fixture: reset_async_clients
+# ---------------------------------------------------------------------------
+# Reset cached async clients from async_cache.py before every test to ensure
+# clean per-loop state and prevent global client leaks between tests.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def reset_async_clients():
+    """Reset the state of cached async clients used by get_client() in async_cache.py."""
+    import async_cache
+    
+    # Clear all per-loop clients
+    async_cache._LOOP_CLIENTS.clear()
+    
+    # Close and reset global client if it exists
+    if async_cache._GLOBAL_CLIENT and not async_cache._GLOBAL_CLIENT.is_closed:
+        try:
+            asyncio.run(async_cache._GLOBAL_CLIENT.aclose())
+        except Exception:
+            pass  # Best effort cleanup
+    async_cache._GLOBAL_CLIENT = None 

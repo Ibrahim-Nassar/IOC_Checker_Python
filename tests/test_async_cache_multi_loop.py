@@ -9,7 +9,7 @@ import time
 # Add the parent directory to the path so we can import from IOC_Checker_Python
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from async_cache import aget, _get_client, _LOOP_CLIENTS
+from async_cache import aget, get_client, _LOOP_CLIENTS
 
 
 class TestAsyncCacheMultiLoop:
@@ -25,7 +25,7 @@ class TestAsyncCacheMultiLoop:
             async def async_task():
                 try:
                     # Get client - should create per-loop client
-                    client = _get_client()
+                    client = get_client()
                     assert client is not None
                     assert not client.is_closed
                     
@@ -89,7 +89,7 @@ class TestAsyncCacheMultiLoop:
         def run_sequential_loop(loop_id):
             """Run a task in an event loop sequentially."""
             async def async_task():
-                client = _get_client()
+                client = get_client()
                 assert client is not None
                 assert not client.is_closed
                 
@@ -119,8 +119,8 @@ class TestAsyncCacheMultiLoop:
     async def test_same_loop_client_reuse(self):
         """Test that the same loop reuses the same client."""
         # Get client twice in the same loop
-        client1 = _get_client()
-        client2 = _get_client()
+        client1 = get_client()
+        client2 = get_client()
         
         # Should be the same instance
         assert client1 is client2

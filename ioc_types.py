@@ -93,22 +93,60 @@ def _strip_port(v: str) -> str:
     if v.startswith('[') and ']:' in v:
         return v.split(']:')[0][1:]
     
-    # Handle raw IPv6 with port: 2001:db8::1:80
-    # Only strip the last colon if there are more than two colons (IPv6 indicator)
-    colon_count = v.count(':')
-    if colon_count > 2:
-        # This is likely IPv6 with port, strip the last :port
-        return v.rsplit(':', 1)[0]
+    # Handle bracketed IPv6 without port: [2001:db8::1]
+    if v.startswith('[') and v.endswith(']') and ']:' not in v:
+        return v[1:-1]  # Remove brackets
     
-    # Handle IPv4 with port: 192.168.1.1:80
-    if colon_count == 1:
-        return v.split(':')[0]
+    # For raw format, try smarter port detection
+    if ':' in v:
+        colon_count = v.count(':')
+        
+        # IPv4 with port: 192.168.1.1:80
+        if colon_count == 1:
+            parts = v.split(':')
+            # Check if the last part looks like a port (1-65535)
+            try:
+                port = int(parts[1])
+                if 1 <= port <= 65535:
+                    # Verify the first part is a valid IPv4
+                    ipaddress.ip_address(parts[0])
+                    return parts[0]
+            except (ValueError, ipaddress.AddressValueError):
+                pass
+        
+        # IPv6 with potential port: try to detect common port patterns
+        elif colon_count > 1:
+            # Try stripping the last colon segment if it looks like a port
+            parts = v.rsplit(':', 1)
+            if len(parts) == 2:
+                try:
+                    port = int(parts[1])
+                    # If the last segment is a valid port number and 
+                    # the remaining part is a valid IPv6, strip the port
+                    if 1 <= port <= 65535:
+                        try:
+                            ipaddress.ip_address(parts[0])
+                            return parts[0]
+                        except ValueError:
+                            pass
+                except ValueError:
+                    pass
     
-    # No port found or ambiguous case
+    # If no port pattern detected or stripping failed, return original
     return v
 
 def _valid_ip(v:str)->bool:
     try: 
+        # Handle bracketed IPv6 (extract the IP from brackets first)
+        if v.startswith('[') and (']:' in v or v.endswith(']')):
+            # Extract IP from [IP]:port or [IP] format
+            if ']:' in v:
+                ip_part = v.split(']:')[0][1:]  # Remove [ and extract IP
+            else:
+                ip_part = v[1:-1]  # Remove [ and ]
+            ipaddress.ip_address(ip_part)
+            return True
+        
         # First check the basic format - should have exactly 3 dots for IPv4
         if v.count('.') == 3:
             ipaddress.ip_address(_extract_ip(v))

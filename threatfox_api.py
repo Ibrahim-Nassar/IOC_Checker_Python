@@ -1,7 +1,8 @@
 """ThreatFox provider adapter for IOC Checker (async unified IOCResult)."""
 from __future__ import annotations
 
-from async_cache import apost
+import os
+import async_cache
 from ioc_types import IOCResult, IOCStatus
 
 
@@ -20,10 +21,22 @@ class ThreatFoxProvider:
                 message="Type not supported",
             )
 
-        body = {"query": "ioc", "search": ioc}
+        # ThreatFox expects selector "search_ioc" and field "search_term"
+        body = {
+            "query": "search_ioc",
+            "search_term": ioc,
+            "exact_match": True,
+        }
 
         try:
-            resp = await apost("https://threatfox-api.abuse.ch/api/v1/", json=body, timeout=5)
+            api_key = os.getenv("THREATFOX_API_KEY")
+            headers = {"Auth-Key": api_key} if api_key else None
+            resp = await async_cache.apost(
+                "https://threatfox-api.abuse.ch/api/v1/",
+                json=body,
+                timeout=5,
+                headers=headers or None,
+            )
 
             if resp.status_code != 200:
                 return IOCResult(
@@ -46,7 +59,7 @@ class ThreatFoxProvider:
                 ioc_type=ioc_type,
                 status=status,
                 malicious_engines=malicious_engines,
-                total_engines=1,
+                total_engines = len(records) if is_hit else 1,
                 message="",
             )
         except Exception as exc:

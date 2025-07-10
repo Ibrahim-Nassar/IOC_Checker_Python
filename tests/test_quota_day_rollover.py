@@ -12,7 +12,7 @@ class TestQuotaDayRollover:
     
     def test_today_key_format(self):
         """Test that _today_key returns correct format."""
-        with patch('quota.date') as mock_date:
+        with patch('quota._dt.date') as mock_date:
             mock_date.today.return_value = date(2023, 12, 25)
             assert _today_key() == "2023-12-25"
     

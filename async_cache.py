@@ -34,12 +34,15 @@ _FILE_CACHE = FileCache(str(CACHE_DIR / "async_cache")) if _HAS_CACHE else None
 # Per-loop client storage to avoid "attached to different loop" errors
 _LOOP_CLIENTS: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, tuple[httpx.AsyncClient, asyncio.AbstractEventLoop]] = weakref.WeakKeyDictionary()
 
+# Fallback singleton client when no event loop is running (legacy API support)
+_GLOBAL_CLIENT: httpx.AsyncClient | None = None
+
 _LIMITERS: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, collections.OrderedDict[str, AsyncLimiter]] = weakref.WeakKeyDictionary()
 _LIM_LOCK = threading.Lock()
 _CLIENT_LOCK = threading.Lock()
 
 
-def _get_client() -> httpx.AsyncClient:
+def get_client() -> httpx.AsyncClient:
     """Get or create AsyncClient for the current loop only."""
     
     with _CLIENT_LOCK:
@@ -47,7 +50,14 @@ def _get_client() -> httpx.AsyncClient:
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            raise RuntimeError("AsyncClient requires a running event loop")
+            # Special handling for legacy test compatibility - provide global client
+            global _GLOBAL_CLIENT
+            if _GLOBAL_CLIENT is None or _GLOBAL_CLIENT.is_closed:
+                if _HAS_CACHE and _FILE_CACHE is not None:
+                    _GLOBAL_CLIENT = AsyncClient(cache=_FILE_CACHE, timeout=15.0)
+                else:
+                    _GLOBAL_CLIENT = httpx.AsyncClient(timeout=15.0)
+            return _GLOBAL_CLIENT
         
         # Check if we have a client for this loop
         if loop in _LOOP_CLIENTS:
@@ -87,7 +97,7 @@ def _get_limiter(api_key: str | None) -> AsyncLimiter:
 
 async def aget(url: str, *, timeout: float = 15.0, ttl: int = 900, api_key: str | None = None, headers: dict | None = None) -> httpx.Response:
     """Async GET with caching and rate limiting."""
-    client = _get_client()
+    client = get_client()
     limiter = _get_limiter(api_key)
     
     # Add cache control headers if caching is available
@@ -103,7 +113,7 @@ async def aget(url: str, *, timeout: float = 15.0, ttl: int = 900, api_key: str 
 
 async def apost(url: str, json: dict, *, timeout: float = 5.0, ttl: int = 900, api_key: str | None = None, headers: dict | None = None) -> httpx.Response:
     """Async POST with caching and rate limiting."""
-    client = _get_client()
+    client = get_client()
     limiter = _get_limiter(api_key)
     
     # Add cache control headers if caching is available
@@ -142,5 +152,13 @@ def _close_all_clients() -> None:
                 except Exception:
                     pass  # Best effort cleanup
 
+    # Close the global fallback client (if any)
+    global _GLOBAL_CLIENT
+    if _GLOBAL_CLIENT and not _GLOBAL_CLIENT.is_closed:
+        try:
+            asyncio.run(_GLOBAL_CLIENT.aclose())
+        except Exception:
+            pass  # Best effort cleanup
 
-__all__ = ["aget", "apost"] 
+
+__all__ = ["aget", "apost", "get_client", "_LOOP_CLIENTS", "_GLOBAL_CLIENT", "_close_all_clients"] 

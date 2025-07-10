@@ -41,7 +41,7 @@ class TestProvidersBasePostHeaders:
         provider = TestProvider()
         
         # Mock the apost function to capture arguments
-        with patch('providers_base.apost') as mock_apost:
+        with patch('async_cache.apost') as mock_apost:
             mock_response = AsyncMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {"test": "data"}
@@ -81,7 +81,7 @@ class TestProvidersBasePostHeaders:
         """Test that POST works correctly when no headers are provided."""
         provider = TestProvider()
         
-        with patch('providers_base.apost') as mock_apost:
+        with patch('async_cache.apost') as mock_apost:
             mock_response = AsyncMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {"test": "data"}
@@ -107,7 +107,7 @@ class TestProvidersBasePostHeaders:
         """Test that GET requests still work with headers (regression test)."""
         provider = TestProvider()
         
-        with patch('providers_base.aget') as mock_aget:
+        with patch('async_cache.aget') as mock_aget:
             mock_response = AsyncMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {"test": "data"}
@@ -135,7 +135,7 @@ class TestProvidersBasePostHeaders:
         """Test that retry count is correct (max_retries attempts, not max_retries + 1)."""
         provider = TestProvider()
         
-        with patch('providers_base.aget') as mock_aget:
+        with patch('async_cache.aget') as mock_aget:
             # Mock to always fail
             mock_aget.side_effect = Exception("Connection failed")
             
@@ -155,7 +155,7 @@ class TestProvidersBasePostHeaders:
         """Test that rate limit retries work correctly."""
         provider = TestProvider()
         
-        with patch('providers_base.aget') as mock_aget:
+        with patch('async_cache.aget') as mock_aget:
             with patch('asyncio.sleep') as mock_sleep:
                 # Mock responses: 429, 429, 200
                 mock_responses = []

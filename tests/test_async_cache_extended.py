@@ -18,7 +18,7 @@ class TestAsyncCache:
     def test_aget_success(self):
         """Test successful async GET request."""
         async def run_test():
-            with patch('async_cache._get_client') as mock_get_client:
+            with patch('async_cache.get_client') as mock_get_client:
                 mock_client = AsyncMock()
                 mock_response = MagicMock()
                 mock_response.status_code = 200
@@ -37,7 +37,7 @@ class TestAsyncCache:
     def test_apost_success(self):
         """Test successful async POST request."""
         async def run_test():
-            with patch('async_cache._get_client') as mock_get_client:
+            with patch('async_cache.get_client') as mock_get_client:
                 mock_client = AsyncMock()
                 mock_response = MagicMock()
                 mock_response.status_code = 200
@@ -56,7 +56,7 @@ class TestAsyncCache:
     def test_rate_limiting(self):
         """Test that rate limiting is applied."""
         async def run_test():
-            with patch('async_cache._get_client') as mock_get_client, \
+            with patch('async_cache.get_client') as mock_get_client, \
                  patch('async_cache._get_limiter') as mock_get_limiter:
                 
                 mock_client = AsyncMock()
@@ -80,7 +80,7 @@ class TestAsyncCache:
     def test_rate_limiting_anonymous(self):
         """Test rate limiting for anonymous requests."""
         async def run_test():
-            with patch('async_cache._get_client') as mock_get_client, \
+            with patch('async_cache.get_client') as mock_get_client, \
                  patch('async_cache._get_limiter') as mock_get_limiter:
                 
                 mock_client = AsyncMock()
@@ -108,8 +108,8 @@ class TestAsyncCache:
         # This tests the context variable functionality exists
         # We can't easily test the actual context variable behavior
         # but we can verify the function exists and works
-        client1 = async_cache._get_client()
-        client2 = async_cache._get_client()
+        client1 = async_cache.get_client()
+        client2 = async_cache.get_client()
         
         # Should return client objects
         assert client1 is not None
@@ -136,7 +136,7 @@ class TestAsyncCache:
         async def run_test():
             # Mock httpx_cache availability
             with patch('async_cache._HAS_CACHE', True), \
-                 patch('async_cache._get_client') as mock_get_client:
+                 patch('async_cache.get_client') as mock_get_client:
                 
                 mock_client = AsyncMock()
                 mock_response = MagicMock()
@@ -157,7 +157,7 @@ class TestAsyncCache:
         """Test behavior when caching is not available."""
         async def run_test():
             with patch('async_cache._HAS_CACHE', False), \
-                 patch('async_cache._get_client') as mock_get_client:
+                 patch('async_cache.get_client') as mock_get_client:
                 
                 mock_client = AsyncMock()
                 mock_response = MagicMock()
@@ -174,7 +174,7 @@ class TestAsyncCache:
     def test_timeout_handling(self):
         """Test timeout parameter is passed correctly."""
         async def run_test():
-            with patch('async_cache._get_client') as mock_get_client:
+            with patch('async_cache.get_client') as mock_get_client:
                 mock_client = AsyncMock()
                 mock_client.get.side_effect = httpx.TimeoutException("Request timed out")
                 mock_get_client.return_value = mock_client
@@ -187,7 +187,7 @@ class TestAsyncCache:
     def test_concurrent_requests(self):
         """Test that concurrent requests work properly."""
         async def run_test():
-            with patch('async_cache._get_client') as mock_get_client:
+            with patch('async_cache.get_client') as mock_get_client:
                 mock_client = AsyncMock()
                 mock_response = MagicMock()
                 mock_response.status_code = 200

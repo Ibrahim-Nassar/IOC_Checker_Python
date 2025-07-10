@@ -8,7 +8,7 @@ import threading
 import time
 from unittest.mock import patch
 
-from async_cache import _get_client, _close_all_clients, _LOOP_CLIENTS
+from async_cache import get_client, _close_all_clients, _LOOP_CLIENTS
 
 
 class TestAsyncCacheCrossLoop:
@@ -30,7 +30,7 @@ class TestAsyncCacheCrossLoop:
             
             try:
                 # Create a client in this loop
-                client = _get_client()
+                client = get_client()
                 clients_created.append(client)
                 
                 # Run the loop briefly to ensure client is properly initialized
@@ -71,13 +71,13 @@ class TestAsyncCacheCrossLoop:
             assert client.is_closed, "Client should be closed after cleanup"
     
     def test_client_creation_requires_loop(self):
-        """Test that _get_client requires a running event loop."""
+        """Test that get_client requires a running event loop."""
         # Clear any existing clients
         _LOOP_CLIENTS.clear()
         
         # Should raise RuntimeError when no loop is running
         with pytest.raises(RuntimeError, match="AsyncClient requires a running event loop"):
-            _get_client()
+            get_client()
     
     def test_same_loop_client_reuse(self):
         """Test that clients are reused within the same loop."""
@@ -86,8 +86,8 @@ class TestAsyncCacheCrossLoop:
             # Clear any existing clients
             _LOOP_CLIENTS.clear()
             
-            client1 = _get_client()
-            client2 = _get_client()
+            client1 = get_client()
+            client2 = get_client()
             
             # Should be the same client instance
             assert client1 is client2
@@ -107,7 +107,7 @@ class TestAsyncCacheCrossLoop:
         clients = []
         
         async def get_client_in_loop():
-            client = _get_client()
+            client = get_client()
             clients.append(client)
             return client
         
@@ -126,13 +126,13 @@ class TestAsyncCacheCrossLoop:
             # Clear any existing clients
             _LOOP_CLIENTS.clear()
             
-            client1 = _get_client()
+            client1 = get_client()
             
             # Close the client
             await client1.aclose()
             
             # Getting client again should create a new one
-            client2 = _get_client()
+            client2 = get_client()
             
             # Should be different clients
             assert client1 is not client2
@@ -155,7 +155,7 @@ class TestAsyncCacheCrossLoop:
             asyncio.set_event_loop(loop)
             
             try:
-                client = _get_client()
+                client = get_client()
                 clients_and_loops.append((client, loop))
                 
                 # Run briefly to initialize

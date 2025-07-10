@@ -4,7 +4,7 @@ import asyncio
 from unittest.mock import Mock, patch, AsyncMock
 import threading
 
-from async_cache import _close_all_clients, _get_client
+from async_cache import _close_all_clients, get_client
 
 
 class TestAsyncCacheShutdown:
@@ -107,12 +107,12 @@ class TestAsyncCacheShutdown:
             assert mock_run.call_count >= 1
     
     def test_get_client_after_close(self):
-        """Test that _get_client works after _close_all_clients."""
+        """Test that get_client works after _close_all_clients."""
         # This test ensures the client can be recreated after shutdown
         with patch('async_cache._GLOBAL_CLIENT', None):
-            client = _get_client()
+            client = get_client()
             assert client is not None
             
             # Should be able to get client again
-            client2 = _get_client()
+            client2 = get_client()
             assert client2 is client  # Should be the same instance 
