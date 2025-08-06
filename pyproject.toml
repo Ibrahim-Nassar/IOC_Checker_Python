@@ -10,8 +10,6 @@ packages = [{ include = "IOC_Checker_Python" }]
 [tool.poetry.dependencies]
 python = "^3.10"
 httpx = "^0.27"
-httpx-cache = "^0.13"
-aiolimiter = "^1.0"
 pydantic = "^2.7"
 filelock = "^3.14"
 requests-cache = "^1.2"

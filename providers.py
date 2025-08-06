@@ -25,18 +25,6 @@ try:
 except ImportError:
     pass
 
-try:
-    from threatfox_api import ThreatFoxProvider
-    _prov_classes.append(ThreatFoxProvider)
-except ImportError:
-    pass
-
-try:
-    from greynoise_api import GreyNoiseProvider
-    _prov_classes.append(GreyNoiseProvider)
-except ImportError:
-    pass
-
 # Make PROV_CLASSES an immutable tuple
 PROV_CLASSES = tuple(_prov_classes)
 

@@ -17,6 +17,10 @@ VIRUSTOTAL_RPM=10
 GREYNOISE_RPM=100
 ```
 
+## CLI Usage
+
+The command-line interface automatically loads saved API keys from the GUI configuration, so you can set up your keys once in the GUI and use them immediately with the CLI.
+
 ## Installation
 
 ### Requirements

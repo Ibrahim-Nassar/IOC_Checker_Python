@@ -11,6 +11,7 @@ import contextlib
 
 from ioc_types import IOCResult, IOCStatus, detect_ioc_type
 import providers
+from api_key_store import load_saved_keys
 
 # ── ensure UTF-8 capable streams without upsetting Pyright ───────────────
 if hasattr(sys.stdout, "reconfigure"):   # type: ignore[attr-defined]
@@ -30,14 +31,20 @@ def aggregate_verdict(results: list[IOCResult]) -> IOCStatus:
     1. ERROR - if any provider errors exist (even with malicious results)
     2. MALICIOUS - if any provider reports malicious (without errors)
     3. UNSUPPORTED - if all providers are unsupported
-    4. SUCCESS - if all providers report success/clean
+    4. NOT_FOUND - if all providers report not found (no success/malicious)
+    5. SUCCESS - if all providers report success/clean or not found
     """
+    if not results:  # Handle empty results
+        return IOCStatus.SUCCESS
+        
     if any(r.status == IOCStatus.ERROR for r in results):
         return IOCStatus.ERROR
     elif any(r.status == IOCStatus.MALICIOUS for r in results):
         return IOCStatus.MALICIOUS
-    elif any(r.status == IOCStatus.UNSUPPORTED for r in results) and not any(r.status == IOCStatus.SUCCESS for r in results):
+    elif any(r.status == IOCStatus.UNSUPPORTED for r in results) and not any(r.status in [IOCStatus.SUCCESS, IOCStatus.NOT_FOUND] for r in results):
         return IOCStatus.UNSUPPORTED
+    elif all(r.status == IOCStatus.NOT_FOUND for r in results):
+        return IOCStatus.NOT_FOUND
     else:
         return IOCStatus.SUCCESS
 
@@ -173,6 +180,9 @@ def scan_ioc_sync(ioc: str, ioc_type: str) -> Dict[str, IOCResult]:
 
 
 def main() -> None:
+    # Load saved API keys before any provider discovery
+    load_saved_keys()
+    
     parser = argparse.ArgumentParser(description="IOC checker with unified provider interface")
     parser.add_argument("ioc", nargs="?", help="IOC value to check")
     parser.add_argument("--type", help="IOC type (ip, domain, url, hash) - auto-detected if not provided")

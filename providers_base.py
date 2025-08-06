@@ -6,7 +6,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Literal
 
-from async_cache import aget, apost
+import httpx
 from ioc_types import IOCResult, IOCStatus
 
 
@@ -49,12 +49,13 @@ class BaseProvider(ABC):
         
         for attempt in range(max_retries):
             try:
-                if method.upper() == "GET":
-                    resp = await aget(url, headers=headers, timeout=self.timeout, api_key=self._key)
-                elif method.upper() == "POST":
-                    resp = await apost(url, json=json_data or {}, timeout=self.timeout, api_key=self._key, headers=headers)
-                else:
-                    raise ValueError(f"Unsupported HTTP method: {method}")
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    if method.upper() == "GET":
+                        resp = await client.get(url, headers=headers)
+                    elif method.upper() == "POST":
+                        resp = await client.post(url, json=json_data or {}, headers=headers)
+                    else:
+                        raise ValueError(f"Unsupported HTTP method: {method}")
                 
                 # Check status code
                 if resp.status_code == 200:

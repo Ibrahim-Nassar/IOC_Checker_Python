@@ -10,8 +10,6 @@ DEFAULT_SETTINGS: Dict[str, object] = {
         "virustotal": False,
         "abuseipdb": False,
         "otx": False,
-        "threatfox": False,
-        "greynoise": False,
     },
     "show_threats_only": False,
     "dark_mode": False,

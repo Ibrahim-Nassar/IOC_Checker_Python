@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 
-from async_cache import aget
+import httpx
 from ioc_types import IOCResult, IOCStatus
 
 
@@ -31,16 +31,37 @@ class AbuseIPDBProvider:
         headers = {"Key": self._key, "Accept": "application/json"}
 
         try:
-            resp = await aget(url, headers=headers, timeout=5, api_key=self._key)
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(url, headers=headers)
 
             if resp.status_code != 200:
+                # Provide user-friendly error messages
+                if resp.status_code == 404:
+                    error_msg = "IP address not found in AbuseIPDB database"
+                    return IOCResult(
+                        ioc=ioc,
+                        ioc_type=ioc_type,
+                        status=IOCStatus.NOT_FOUND,
+                        malicious_engines=0,
+                        total_engines=0,
+                        message=error_msg,
+                    )
+                elif resp.status_code == 403:
+                    error_msg = "Invalid AbuseIPDB API key or insufficient permissions"
+                elif resp.status_code == 429:
+                    error_msg = "AbuseIPDB rate limit exceeded"
+                elif resp.status_code >= 500:
+                    error_msg = "AbuseIPDB server error"
+                else:
+                    error_msg = f"HTTP {resp.status_code}"
+                
                 return IOCResult(
                     ioc=ioc,
                     ioc_type=ioc_type,
                     status=IOCStatus.ERROR,
                     malicious_engines=0,
                     total_engines=0,
-                    message=f"HTTP {resp.status_code}",
+                    message=error_msg,
                 )
 
             data = resp.json()
@@ -57,13 +78,22 @@ class AbuseIPDBProvider:
                 message="",
             )
         except Exception as exc:
+            # Provide user-friendly error messages
+            error_msg = str(exc)
+            if "timeout" in error_msg.lower():
+                error_msg = "Connection timeout - AbuseIPDB server slow to respond"
+            elif "connection" in error_msg.lower():
+                error_msg = "Network connection error"
+            elif "json" in error_msg.lower() and "decode" in error_msg.lower():
+                error_msg = "Invalid response from AbuseIPDB server"
+            
             return IOCResult(
                 ioc=ioc,
                 ioc_type=ioc_type,
                 status=IOCStatus.ERROR,
                 malicious_engines=0,
                 total_engines=0,
-                message=str(exc),
+                message=error_msg,
             )
 
 

@@ -198,7 +198,11 @@ _tk._default_root = _StubTk()  # type: ignore[attr-defined]
 @pytest.fixture(autouse=True)
 def reset_async_clients():
     """Reset the state of cached async clients used by get_client() in async_cache.py."""
-    import async_cache
+    try:
+        import async_cache  # type: ignore
+    except ImportError:
+        # async_cache module removed in slimmed-down build; nothing to reset
+        return
     
     # Clear all per-loop clients
     async_cache._LOOP_CLIENTS.clear()

@@ -31,6 +31,7 @@ class IOCStatus(Enum):
     MALICIOUS = "malicious"
     ERROR = "error"
     UNSUPPORTED = "unsupported"
+    NOT_FOUND = "not_found"
 
 
 if _HAS_PYDANTIC:

@@ -7,7 +7,7 @@ from __future__ import annotations
 import os
 from typing import Literal
 
-from async_cache import aget
+import httpx
 from ioc_types import IOCResult, IOCStatus
 
 
@@ -37,16 +37,37 @@ class OTXProvider:
         headers = {"X-OTX-API-KEY": self.api_key}
         
         try:
-            resp = await aget(url, headers=headers, timeout=15.0, api_key=self.api_key)
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(url, headers=headers)
             
             if resp.status_code != 200:
-                error_msg = f"HTTP {resp.status_code}"
-                try:
-                    error_body = resp.text
-                    if error_body:
-                        error_msg += f": {error_body[:200]}"
-                except Exception:
-                    pass
+                # Provide user-friendly error messages
+                if resp.status_code == 404:
+                    error_msg = f"{ioc_type.capitalize()} not found in OTX database"
+                    return IOCResult(
+                        ioc=ioc,
+                        ioc_type=ioc_type,
+                        status=IOCStatus.NOT_FOUND,
+                        malicious_engines=0,
+                        total_engines=0,
+                        message=error_msg
+                    )
+                elif resp.status_code == 403:
+                    error_msg = "Invalid OTX API key or insufficient permissions"
+                elif resp.status_code == 401:
+                    error_msg = "OTX API key authentication failed"
+                elif resp.status_code == 429:
+                    error_msg = "OTX rate limit exceeded"
+                elif resp.status_code >= 500:
+                    error_msg = "OTX server error"
+                else:
+                    error_msg = f"HTTP {resp.status_code}"
+                    try:
+                        error_body = resp.text
+                        if error_body:
+                            error_msg += f": {error_body[:200]}"
+                    except Exception:
+                        pass
                 
                 return IOCResult(
                     ioc=ioc,

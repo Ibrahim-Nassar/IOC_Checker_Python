@@ -9,7 +9,6 @@ from typing import Dict
 DAILY_LIMITS: Dict[str, int] = {
     "VirusTotal": 500,   # public API
     "AbuseIPDB": 1000,
-    "GreyNoise": 50,     # community tier
 }
 
 _PATH = pathlib.Path.home() / ".ioc_checker_quota.json"

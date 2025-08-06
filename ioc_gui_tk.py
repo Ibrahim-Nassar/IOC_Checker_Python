@@ -16,11 +16,9 @@ from pathlib import Path
 import functools
 import csv
 from datetime import datetime
-from logging.handlers import RotatingFileHandler
 from ioc_types import IOCStatus, IOCResult, detect_ioc_type, validate_ioc
 from providers import get_providers
 from ioc_checker import aggregate_verdict, scan_ioc
-from async_cache import _close_all_clients
 from api_key_store import save as save_key, load as load_key
 
 _STATUS_MAP = {
@@ -28,6 +26,7 @@ _STATUS_MAP = {
     IOCStatus.MALICIOUS: "✖ Malicious", 
     IOCStatus.ERROR: "⚠ Error",
     IOCStatus.UNSUPPORTED: "— N/A",
+    IOCStatus.NOT_FOUND: "◯ Not Found",
 }
 
 # Set UTF-8 encoding for console output when available
@@ -52,27 +51,18 @@ def setup_verbose_logging():
     """Configure verbose logging for batch processing debugging."""
     # Create rotating file handler for debug logs
     debug_log_path = Path("ioc_gui_debug.log")
-    handler = RotatingFileHandler(
-        debug_log_path, 
-        maxBytes=5*1024*1024,  # 5 MB
-        backupCount=3
-    )
     
-    # Set format to include more detail
-    formatter = logging.Formatter(
-        "%(asctime)s [%(levelname)s] %(name)s:%(lineno)d - %(message)s"
-    )
-    handler.setFormatter(formatter)
-    
-    # Add handler to root logger
-    root_logger = logging.getLogger()
-    root_logger.addHandler(handler)
-    
-    # Set debug level if environment variable is set
+    # Simple logging: no rotating file handler
     if os.environ.get("IOC_GUI_DEBUG") == "1":
+        root_logger = logging.getLogger()
+        handler = logging.FileHandler(debug_log_path, encoding="utf-8")
+        formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s:%(lineno)d - %(message)s")
+        handler.setFormatter(formatter)
+        root_logger.addHandler(handler)
         root_logger.setLevel(logging.DEBUG)
         log.info("Debug logging enabled via IOC_GUI_DEBUG=1")
     else:
+        root_logger = logging.getLogger()
         root_logger.setLevel(logging.INFO)
     
     log.info(f"Verbose logging configured, writing to {debug_log_path}")
@@ -81,8 +71,6 @@ AVAILABLE_PROVIDERS = {
     'virustotal': 'VirusTotal',
     'abuseipdb': 'AbuseIPDB', 
     'otx': 'AlienVault OTX',
-    'threatfox': 'ThreatFox',
-    'greynoise': 'GreyNoise',
 }
 
 # Module-level flag to prevent duplicate background loops
@@ -140,8 +128,6 @@ class IOCCheckerGUI:
             'virustotal': False,
             'abuseipdb': False,
             'otx': False,
-            'threatfox': False,
-            'greynoise': False,
         }
         
         # Reference to the background loop
@@ -151,8 +137,6 @@ class IOCCheckerGUI:
             ("virustotal", "VirusTotal", "VIRUSTOTAL_API_KEY", "Universal threat intelligence platform", ["ip", "domain", "url", "hash"]),
             ("abuseipdb", "AbuseIPDB", "ABUSEIPDB_API_KEY", "IP reputation and abuse reports", ["ip"]),
             ("otx", "AlienVault OTX", "OTX_API_KEY", "Open threat exchange platform", ["ip", "domain", "url", "hash"]),
-            ("threatfox", "ThreatFox", "THREATFOX_API_KEY", "Malware IOCs from abuse.ch", ["ip", "domain", "url", "hash"]),
-            ("greynoise", "GreyNoise", "GREYNOISE_API_KEY", "Internet background noise analysis", ["ip"]),
         ]
         
         self.show_threats_var = tk.BooleanVar(value=False)
@@ -161,7 +145,7 @@ class IOCCheckerGUI:
         
         # Load saved API keys before any provider discovery
         _API_VARS = ("VIRUSTOTAL_API_KEY", "OTX_API_KEY",
-                     "ABUSEIPDB_API_KEY", "GREYNOISE_API_KEY", "THREATFOX_API_KEY")
+                     "ABUSEIPDB_API_KEY")
         
         loaded_keys = []
         for var in _API_VARS:
@@ -651,54 +635,29 @@ class IOCCheckerGUI:
                 self._reset_batch_ui()
                 return
             
-            # Check for provider-type mismatches
+            # Check for provider/IOC type mismatches
             ioc_types_found, unsupported_iocs, provider_type_map = self._analyze_ioc_types(iocs)
-            
-            # If there are unsupported IOCs, show the mismatch dialog
             if unsupported_iocs:
-                action, export_unsupported = self._show_provider_mismatch_dialog(
-                    ioc_types_found, unsupported_iocs, provider_type_map)
-                
+                action, export_unsupported = self._show_provider_mismatch_dialog(ioc_types_found, unsupported_iocs, provider_type_map, len(iocs))
                 if action == 'cancel':
                     self._reset_batch_ui()
                     return
-                elif action == 'skip':
-                    # Filter out unsupported IOCs
-                    unsupported_values = {ioc['normalized'] for ioc in unsupported_iocs}
-                    original_count = len(iocs)
-                    filtered_iocs = []
-                    
-                    for ioc_data in iocs:
-                        ioc_value = ioc_data.get('value', str(ioc_data))
-                        is_valid, ioc_type, normalized_ioc, error_message = validate_ioc(ioc_value)
-                        
-                        # Keep IOC if it's not in the unsupported list
-                        if not is_valid or normalized_ioc not in unsupported_values:
-                            filtered_iocs.append(ioc_data)
-                    
-                    iocs = filtered_iocs
-                    
-                    # Export unsupported IOCs if requested
-                    if export_unsupported:
-                        unsupported_path = self._export_unsupported_iocs(filename, unsupported_iocs)
-                        if unsupported_path:
-                            messagebox.showinfo("Export Complete", 
-                                               f"Unsupported IOCs exported to:\n{unsupported_path}")
-                    
-                    # Update the user about filtered IOCs
-                    messagebox.showinfo("IOCs Filtered", 
-                                       f"Filtered out {len(unsupported_iocs)} unsupported IOCs.\n"
-                                       f"Processing {len(iocs)} supported IOCs.")
-                # For 'continue', we proceed with all IOCs (including unsupported ones)
+                # If action == 'proceed', continue with all IOCs
             
-            if not iocs:
-                messagebox.showinfo("No IOCs", "No supported IOCs to process after filtering.")
-                self._reset_batch_ui()
-                return
-            
+            # Start the actual batch processing
+
+            # Insert progress row and track it for later removal
             processing_values = ["Batch", filename, f"Processing {len(iocs)} IOCs...", ""] + [""] * len(selected_providers)
-            self.out.insert('', 'end', values=tuple(processing_values))
+            progress_placeholder = self.out.insert('', 'end', values=tuple(processing_values))
             self.root.update()
+            
+            # Create index map to preserve original IOC order in CSV
+            index_map = {}
+            for idx, ioc_data in enumerate(iocs):
+                ioc_value = ioc_data.get('value', str(ioc_data))
+                is_valid, ioc_type, normalized_ioc, error_message = validate_ioc(ioc_value)
+                if is_valid:
+                    index_map[normalized_ioc] = idx
             
             async def process_batch() -> None:
                 task_id = _safe_task_id()
@@ -739,6 +698,19 @@ class IOCCheckerGUI:
                     
                     if is_valid:
                         log.debug(f"[{task_name}] idx={idx}, ioc='{ioc_value}' - VALID (type={ioc_type}, normalized='{normalized_ioc}')")
+                        
+                        # Check if IOC is supported by any active provider
+                        supported_by_any = any(ioc_type in getattr(provider, 'SUPPORTED_TYPES', set()) 
+                                             for provider in selected_providers)
+                        
+                        if not supported_by_any:
+                            # Mark as unsupported without scanning
+                            async with progress_lock:
+                                invalid_count += 1
+                                completed_count += 1
+                            self._add_unsupported_result(csv_results, ioc_type, normalized_ioc, selected_providers)
+                            return
+                        
                         try:
                             # Scan IOC with selected providers (no extra timeout - scan_ioc has per-provider timeouts)
                             log.debug(f"[{task_name}] idx={idx}, ioc='{normalized_ioc}' - calling scan_ioc() with {len(selected_providers)} providers")
@@ -753,12 +725,21 @@ class IOCCheckerGUI:
                             from ioc_checker import aggregate_verdict
                             from ioc_types import IOCStatus
                             overall_verdict = aggregate_verdict(list(results.values()))
-                            flagged_providers = [name for name, result in results.items() 
-                                               if result.status == IOCStatus.MALICIOUS]
+                            flagged_providers = [
+                                f"{name} ({res.malicious_engines}/{res.total_engines})"
+                                if res.status == IOCStatus.MALICIOUS else name
+                                for name, res in results.items() if res.status == IOCStatus.MALICIOUS
+                            ]
                             
-                            verdict_text = "malicious" if overall_verdict == IOCStatus.MALICIOUS else "clean"
-                            if overall_verdict == IOCStatus.ERROR:
-                                verdict_text = "error"
+                            # Map IOCStatus to CSV text values
+                            verdict_text_map = {
+                                IOCStatus.MALICIOUS: "malicious",
+                                IOCStatus.SUCCESS: "clean", 
+                                IOCStatus.ERROR: "error",
+                                IOCStatus.UNSUPPORTED: "unsupported",
+                                IOCStatus.NOT_FOUND: "not_found"
+                            }
+                            verdict_text = verdict_text_map.get(overall_verdict, "unknown")
                             
                             csv_results.append({
                                 'type': ioc_type,
@@ -844,6 +825,15 @@ class IOCCheckerGUI:
                     await asyncio.gather(*[run_with_semaphore(task) for task in tasks])
                     log.debug(f"[{task_id}] All tasks completed successfully")
                     
+                    # Remove progress placeholder from GUI
+                    try:
+                        self.out.delete(progress_placeholder)
+                    except tk.TclError:
+                        pass  # Item may have been cleared already
+                    
+                    # Sort CSV results by original input order
+                    csv_results.sort(key=lambda r: index_map.get(r['ioc'], 999999))
+                    
                     # Export results to CSV
                     csv_path = self._export_batch_results(filename, csv_results)
                     
@@ -859,8 +849,18 @@ class IOCCheckerGUI:
                     
                 except asyncio.CancelledError:
                     log.debug(f"[{task_id}] process_batch() cancelled")
+                    
+                    # Remove progress placeholder from GUI
+                    try:
+                        self.out.delete(progress_placeholder)
+                    except tk.TclError:
+                        pass  # Item may have been cleared already
+                    
                     # Export partial results if cancelled
                     if csv_results:
+                        # Sort CSV results by original input order  
+                        csv_results.sort(key=lambda r: index_map.get(r['ioc'], 999999))
+                        
                         csv_path = self._export_batch_results(filename, csv_results, cancelled=True)
                         cancel_msg = f"Batch processing cancelled.\n\nProcessed {len(csv_results)} IOCs before cancellation."
                         if csv_path:
@@ -961,28 +961,19 @@ class IOCCheckerGUI:
         
         return ioc_types_found, unsupported_iocs, provider_type_map
 
-    def _show_provider_mismatch_dialog(self, ioc_types_found, unsupported_iocs, provider_type_map):
-        """Show dialog when selected providers don't support all IOC types in the batch.
+    def _show_provider_mismatch_dialog(self, ioc_types_found, unsupported_iocs, provider_type_map, total_iocs):
+        """Show dialog when there are IOC/provider type mismatches."""
+        dialog_result = {'action': 'cancel', 'export_unsupported': False}
         
-        Returns:
-            tuple: (action, export_unsupported) where action is one of:
-                   'cancel', 'skip', 'continue'
-        """
         dialog = tk.Toplevel(self.root)
-        dialog.title("Provider Type Mismatch")
-        dialog.geometry("600x450")
+        dialog.title("Provider/IOC Type Mismatch")
+        dialog.geometry("600x400")
+        dialog.resizable(False, False)
         dialog.transient(self.root)
         dialog.grab_set()
-        dialog.resizable(False, False)
         
-        # Center the dialog
-        dialog.update_idletasks()
-        x = (dialog.winfo_screenwidth() // 2) - (600 // 2)
-        y = (dialog.winfo_screenheight() // 2) - (450 // 2)
-        dialog.geometry(f"600x450+{x}+{y}")
-        
-        result = {'action': 'cancel', 'export_unsupported': False}
-        
+        unsupported_text = f"Unsupported IOCs: {len(unsupported_iocs)} out of {total_iocs}"
+
         main_frame = ttk.Frame(dialog)
         main_frame.pack(fill="both", expand=True, padx=20, pady=20)
         
@@ -1014,7 +1005,7 @@ class IOCCheckerGUI:
         
         # Unsupported IOCs
         if unsupported_iocs:
-            unsupported_text = f"Unsupported IOCs: {len(unsupported_iocs)} out of {len(unsupported_iocs) + sum(1 for t in ioc_types_found if any(t in types for types in provider_type_map.values()))}"
+            unsupported_text = f"Unsupported IOCs: {len(unsupported_iocs)} out of {total_iocs}"
             ttk.Label(summary_frame, text=unsupported_text, foreground="red").pack(anchor="w", pady=(5, 0))
         
         # Unsupported IOCs details (if any)
@@ -1059,30 +1050,40 @@ class IOCCheckerGUI:
         button_frame.pack(fill="x")
         
         def on_cancel():
-            result['action'] = 'cancel'
+            dialog_result['action'] = 'cancel'
             dialog.destroy()
         
         def on_skip():
-            result['action'] = 'skip'
-            result['export_unsupported'] = export_var.get()
+            dialog_result['action'] = 'proceed'
+            dialog_result['export_unsupported'] = export_var.get()
             dialog.destroy()
         
         def on_continue():
-            result['action'] = 'continue'
-            result['export_unsupported'] = export_var.get()
+            dialog_result['action'] = 'proceed'
             dialog.destroy()
         
         # Buttons
         ttk.Button(button_frame, text="Cancel", command=on_cancel).pack(side="right", padx=(5, 0))
-        ttk.Button(button_frame, text="Skip Unsupported", command=on_skip).pack(side="right", padx=(5, 0))
+        ttk.Button(button_frame, text="Mark Unsupported", command=on_skip).pack(side="right", padx=(5, 0))
         ttk.Button(button_frame, text="Continue Anyway", command=on_continue).pack(side="right", padx=(5, 0))
         ttk.Button(button_frame, text="Go Back to Select Providers", command=on_cancel).pack(side="left")
         
         # Wait for dialog to close
         dialog.wait_window()
         
-        return result['action'], result['export_unsupported']
+        return dialog_result['action'], dialog_result['export_unsupported']
 
+    def _add_unsupported_result(self, csv_results, ioc_type, ioc_value, active_providers):
+        """Add an unsupported IOC to results without scanning."""
+        provider_names = ', '.join(p.NAME for p in active_providers)
+        csv_results.append({
+            'type': ioc_type,
+            'ioc': ioc_value,
+            'verdict': 'unsupported',
+            'flagged_by': f'unsupported by {provider_names}'
+        })
+        self.root.after(0, lambda: self.update_table({}, ioc_value, ioc_type, None, f"Unsupported by {provider_names}"))
+    
     def _export_unsupported_iocs(self, filename, unsupported_iocs):
         """Export unsupported IOCs to a separate CSV file."""
         try:
@@ -1123,11 +1124,15 @@ class IOCCheckerGUI:
             output_path = input_path.parent / output_filename
             
             # Write CSV
+            # Filter out progress rows that shouldn't be exported
+            filtered_results = [r for r in results 
+                               if r.get('type') != 'Batch' and not input_filename.endswith(r.get('ioc', ''))]
+            
             with open(output_path, 'w', newline='', encoding='utf-8') as csvfile:
                 fieldnames = ['type', 'ioc', 'verdict', 'flagged_by']
                 writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
                 writer.writeheader()
-                writer.writerows(results)
+                writer.writerows(filtered_results)
             
             return str(output_path)
         except Exception as e:
