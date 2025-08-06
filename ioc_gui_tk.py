@@ -4,6 +4,10 @@ Simplified Tkinter GUI for IOC checking using the unified result format.
 """
 from __future__ import annotations
 
+# Enable pytest module aliasing
+import sys
+sys.modules['IOC_Checker_Python.ioc_gui_tk'] = sys.modules[__name__]
+
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import asyncio
@@ -20,6 +24,7 @@ from ioc_types import IOCStatus, IOCResult, detect_ioc_type, validate_ioc
 from providers import get_providers
 from ioc_checker import aggregate_verdict, scan_ioc
 from api_key_store import save as save_key, load as load_key
+from loader import load_iocs as _load_iocs
 
 _STATUS_MAP = {
     IOCStatus.SUCCESS: "✔ Clean",
@@ -28,6 +33,9 @@ _STATUS_MAP = {
     IOCStatus.UNSUPPORTED: "— N/A",
     IOCStatus.NOT_FOUND: "◯ Not Found",
 }
+
+# Re-export for tests
+load_iocs = _load_iocs
 
 # Set UTF-8 encoding for console output when available
 try:

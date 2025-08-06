@@ -151,13 +151,9 @@ class TestCLIIntegration:
         # Mock a running event loop to simulate async context
         mock_loop = MagicMock()
         with patch('asyncio.get_running_loop', return_value=mock_loop):
-            # The actual implementation checks for RuntimeError and continues
-            # Let's test that it tries to detect async context
-            with patch('asyncio.run') as mock_run:
-                mock_run.return_value = {"test": "result"}
-                result = scan_ioc_sync("test.com", "domain")
-                # Should still work, as the current implementation catches RuntimeError
-                assert result == {"test": "result"}
+            # Should raise RuntimeError when called from async context
+            with pytest.raises(RuntimeError, match="scan_ioc_sync cannot be called from an async loop"):
+                scan_ioc_sync("test.com", "domain")
     
     def test_cli_output_formatting(self):
         """Test CLI output formatting."""

@@ -45,9 +45,17 @@ class TestGUIThreading:
             mock_provider = MagicMock()
             mock_provider.NAME = "test_provider"
             
+            # Mock root.after to execute callbacks immediately (except polling)
+            def mock_after(delay, callback):
+                # Don't execute polling callbacks immediately to avoid infinite recursion
+                if hasattr(callback, '__name__') and callback.__name__ == '_poll_queue':
+                    return  # Skip polling callbacks
+                callback()
+            
             with patch('ioc_gui_tk.scan_ioc', side_effect=mock_scan_ioc), \
                  patch.object(gui, '_selected_providers', return_value=[mock_provider]), \
-                 patch.object(gui, 'update_table') as mock_update:
+                 patch.object(gui, 'update_table') as mock_update, \
+                 patch.object(gui.root, 'after', side_effect=mock_after):
                 
                 # Set up test IOCs
                 test_iocs = [
@@ -67,8 +75,8 @@ class TestGUIThreading:
                         gui.ioc_var.set(ioc)
                         # Trigger scan
                         gui._start_single()
-                        # Small delay to let async operations start
-                        time.sleep(0.05)
+                        # Longer delay to let async operations complete
+                        time.sleep(0.5)
                     except Exception as e:
                         thread_exceptions.append(e)
                 

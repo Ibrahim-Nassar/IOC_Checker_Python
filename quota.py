@@ -17,21 +17,29 @@ _LOCK = FileLock(str(_PATH) + ".lock")
 def _load() -> dict:
     if not _PATH.exists():
         return {}
-    with _PATH.open() as fh:
-        return json.load(fh)
+    try:
+        with _PATH.open() as fh:
+            content = fh.read().strip()
+            if not content:
+                return {}
+            return json.loads(content)
+    except (json.JSONDecodeError, OSError):
+        # Handle corrupt or empty JSON by returning empty dict
+        return {}
 
 def _save(data: dict) -> None:
-    tmp = _PATH.with_suffix(".tmp")
-    with tmp.open("w") as fh:
-        json.dump(data, fh)
-        fh.flush()
-        try:
-            os.fsync(fh.fileno())
-        except (AttributeError, OSError) as e:
-            # Cross-platform safety: some systems don't support fsync
-            import logging
-            logging.debug(f"fsync not supported or failed: {e}")
-    tmp.replace(_PATH)
+    with _LOCK:
+        temp_path = _PATH.with_suffix('.tmp')
+        with open(temp_path, "w") as fh:
+            json.dump(data, fh)
+            fh.flush()
+            try:
+                os.fsync(fh.fileno())
+            except (AttributeError, OSError) as e:
+                # Cross-platform safety: some systems don't support fsync
+                import logging
+                logging.debug(f"fsync not supported or failed: {e}")
+        temp_path.replace(_PATH)
 
 def increment(key: str, amount: int = 1) -> None:
     """Deprecated: Use increment_provider() instead for consistent date-scoped tracking."""

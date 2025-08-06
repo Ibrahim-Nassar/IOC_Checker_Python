@@ -58,11 +58,11 @@ async def scan_ioc(ioc: str, ioc_type: str, provider_list: list | None = None) -
     async def query_single_provider(provider):
         provider_name = getattr(provider, "NAME", "unknown")
         
-        async def _run():
-            return await provider.query_ioc(ioc, ioc_type)
-        
-        task = asyncio.create_task(_run())
         try:
+            async def _run():
+                return await provider.query_ioc(ioc, ioc_type)
+            
+            task = asyncio.create_task(_run())
             result = await asyncio.wait_for(task, timeout=15.0)
             if isinstance(result, IOCResult):
                 return provider_name, result
@@ -76,9 +76,7 @@ async def scan_ioc(ioc: str, ioc_type: str, provider_list: list | None = None) -
                     message="Provider returned invalid result format"
                 )
         except asyncio.TimeoutError:
-            task.cancel()
-            with contextlib.suppress(Exception):
-                await task  # ensure it's awaited / cleaned up
+            # The wait_for timed out
             return provider_name, IOCResult(
                 ioc=ioc,
                 ioc_type=ioc_type,
@@ -87,17 +85,25 @@ async def scan_ioc(ioc: str, ioc_type: str, provider_list: list | None = None) -
                 total_engines=0,
                 message="Provider timeout (15 seconds exceeded)"
             )
-        except Exception as e:
-            task.cancel()
-            with contextlib.suppress(Exception):
-                await task
+        except asyncio.CancelledError:
+            # Handle cancellation
             return provider_name, IOCResult(
                 ioc=ioc,
                 ioc_type=ioc_type,
                 status=IOCStatus.ERROR,
                 malicious_engines=0,
                 total_engines=0,
-                message=str(e)
+                message="Provider operation was cancelled"
+            )
+        except BaseException:
+            # Catch EVERYTHING including system exceptions and cancellations
+            return provider_name, IOCResult(
+                ioc=ioc,
+                ioc_type=ioc_type,
+                status=IOCStatus.ERROR,
+                malicious_engines=0,
+                total_engines=0,
+                message="Provider operation failed"
             )
 
     tasks = [asyncio.create_task(query_single_provider(p)) for p in provider_list]
@@ -168,12 +174,13 @@ def scan_ioc_sync(ioc: str, ioc_type: str) -> Dict[str, IOCResult]:
     
     try:
         asyncio.get_running_loop()
+        # If we get here, there IS a running loop, so raise error
         raise RuntimeError("scan_ioc_sync cannot be called from an async loop")
     except RuntimeError as e:
-        # Only raise if we actually found a running loop
+        # Check if it's our custom error (loop was found)
         if "scan_ioc_sync cannot be called from an async loop" in str(e):
             raise
-        # Otherwise, no loop is running, which is what we want
+        # Otherwise, it's the normal "no running event loop" error, which is what we want
         pass
     
     return asyncio.run(scan_ioc(ioc, ioc_type, get_providers()))

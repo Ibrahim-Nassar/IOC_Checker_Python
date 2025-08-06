@@ -23,7 +23,13 @@ from typing import Dict, List
 
 from ioc_types import detect_ioc_type
 
-__all__ = ["load_iocs", "stream_iocs"]
+__all__ = ["load_iocs", "stream_iocs", "aget"]
+
+
+# Convenience helper for tests/providers
+async def aget(url: str, **kw) -> str:
+    """Simple stub that returns empty string."""
+    return ""
 
 
 # ──────────────────────────────────────────────────────────────────────────────

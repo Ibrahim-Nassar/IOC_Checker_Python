@@ -42,6 +42,22 @@ if _HAS_PYDANTIC:
         malicious_engines: int = 0
         total_engines: int = 0
         message: str = ""
+        
+        def __init__(self, ioc=None, ioc_type=None, status=None, malicious_engines=None, total_engines=None, message=None, **kwargs):
+            # Support positional arguments for backward compatibility
+            if ioc is not None:
+                kwargs['ioc'] = ioc
+            if ioc_type is not None:
+                kwargs['ioc_type'] = ioc_type
+            if status is not None:
+                kwargs['status'] = status
+            if malicious_engines is not None:
+                kwargs['malicious_engines'] = malicious_engines
+            if total_engines is not None:
+                kwargs['total_engines'] = total_engines
+            if message is not None:
+                kwargs['message'] = message
+            super().__init__(**kwargs)
 else:
     @dataclass
     class IOCResult:

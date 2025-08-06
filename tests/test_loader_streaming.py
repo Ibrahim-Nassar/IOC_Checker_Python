@@ -164,8 +164,9 @@ class TestLoaderStreaming:
                     # Memory should stay reasonable during processing
                     assert current_memory < 300, f"Memory usage too high: {current_memory:.2f}MB"
             
-            # Final progress update
-            progress_callback(processed, 10000)
+            # Final progress update (only if not already called in the loop)
+            if processed % 200 != 0:
+                progress_callback(processed, 10000)
             
             # Should have received progress updates
             assert len(progress_updates) > 0, "Should have received progress updates"

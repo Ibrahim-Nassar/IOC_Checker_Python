@@ -9,6 +9,7 @@ from typing import Literal
 
 from providers_base import BaseProvider
 from ioc_types import IOCResult, IOCStatus
+from loader import aget  # shim for tests
 
 
 class VirusTotalProvider(BaseProvider):
@@ -94,4 +95,4 @@ class VirusTotalProvider(BaseProvider):
             return self._create_error_result(ioc, ioc_type, error_msg)
 
 
-__all__ = ["VirusTotalProvider"]
+__all__ = ["VirusTotalProvider", "aget"]

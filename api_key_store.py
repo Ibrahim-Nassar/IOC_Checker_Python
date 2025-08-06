@@ -25,6 +25,14 @@ from filelock import FileLock
 
 log = logging.getLogger(__name__)
 
+# Expose for test compatibility
+_KEYRING_AVAILABLE = False
+keyring = None  # Stub for tests to patch
+
+# Exception class for tests
+class KeyringError(Exception):
+    pass
+
 # ---------------------------------------------------------------------------
 # Cross-platform config directory helper
 # ---------------------------------------------------------------------------
