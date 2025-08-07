@@ -1179,16 +1179,16 @@ class IOCCheckerGUI:
 
         # Page setup (A4 landscape)
         PAGE_W, PAGE_H = 842, 595
-        MARGIN = 36
-        GAP = 8
+        MARGIN = 40
+        GAP = 10
         FONT_SIZE = 11  # bold, clearer
-        LEADING = 16
+        LEADING = 17
 
         # Column widths (sum <= usable width)
         usable_w = PAGE_W - 2 * MARGIN
         col_type_w = 60
-        col_verdict_w = 90
-        col_provider_w = 160
+        col_verdict_w = 100
+        col_provider_w = 220  # wider to reduce awkward wrapping
         col_ioc_w = usable_w - (col_type_w + col_verdict_w + col_provider_w + 3 * GAP)
         x_type = MARGIN
         x_ioc = x_type + col_type_w + GAP
@@ -1219,7 +1219,6 @@ class IOCCheckerGUI:
                     if len(w) <= max_chars:
                         current = w
                     else:
-                        # break long word
                         while len(w) > max_chars:
                             lines.append(w[:max_chars])
                             w = w[max_chars:]
@@ -1256,8 +1255,8 @@ class IOCCheckerGUI:
                 f"BT /F1 {FONT_SIZE} Tf 1 0 0 1 {x} {y} Tm ({esc(txt)}) Tj ET\n".encode("latin-1", errors="replace")
             )
 
-        # Header
-        y = PAGE_H - MARGIN
+        # Header (extra spacing to avoid any overlap)
+        y = PAGE_H - MARGIN - 2
         add_text(MARGIN, y, "IOC Checker Results")
         y -= LEADING
         add_text(MARGIN, y, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
@@ -1268,9 +1267,9 @@ class IOCCheckerGUI:
         add_text(x_ioc, y, "IOC")
         add_text(x_ver, y, "Verdict")
         add_text(x_prov, y, "Provider")
-        y -= LEADING
+        y -= int(LEADING * 0.8)
 
-        # Horizontal rule
+        # Horizontal rule (slightly lower for visual separation)
         rule_x1 = MARGIN
         rule_x2 = PAGE_W - MARGIN
         content.append(f"{rule_x1} {y} m {rule_x2} {y} l S\n".encode("ascii"))
@@ -1291,15 +1290,20 @@ class IOCCheckerGUI:
                 add_text(x_prov, y, wp[idx] if idx < len(wp) else "")
                 y -= LEADING
 
-                if y < MARGIN + LEADING:
+                if y < MARGIN + (LEADING * 3):
+                    # Footer rule of current page
                     content.append(f"{rule_x1} {y} m {rule_x2} {y} l S\n".encode("ascii"))
-                    y = PAGE_H - MARGIN
-                    # Reprint header on new page
+                    # New page header
+                    y = PAGE_H - MARGIN - 2
+                    add_text(MARGIN, y, "IOC Checker Results")
+                    y -= LEADING
+                    add_text(MARGIN, y, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                    y -= (LEADING * 2)
                     add_text(x_type, y, "Type")
                     add_text(x_ioc, y, "IOC")
                     add_text(x_ver, y, "Verdict")
                     add_text(x_prov, y, "Provider")
-                    y -= LEADING
+                    y -= int(LEADING * 0.8)
                     content.append(f"{rule_x1} {y} m {rule_x2} {y} l S\n".encode("ascii"))
                     y -= LEADING
 
