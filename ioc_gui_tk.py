@@ -132,6 +132,10 @@ class IOCCheckerGUI:
         self.processed_iocs = set()  # Track processed IOCs to prevent duplicates
         self._cached_providers = None  # Cache providers during batch processing
         
+        # Track last exported PDF path for auto-open on completion
+        self._last_export_pdf_path = None
+        self._last_export_csv_path = None
+        
         self.provider_config = {
             'virustotal': False,
             'abuseipdb': False,
@@ -257,21 +261,19 @@ class IOCCheckerGUI:
         results_frame = ttk.LabelFrame(main_frame, text="Results", padding=10)
         results_frame.pack(fill="both", expand=True)
         
-        # Initialize with all potential columns
-        self.base_columns = ["Type", "IOC", "Verdict", "Flagged By"]
+        # Initialize with simplified columns (remove 'Verdict' and 'Flagged By')
+        self.base_columns = ["Type", "IOC"]
         self.columns = self.base_columns[:]  # Will be updated dynamically
         
         self.out = ttk.Treeview(results_frame, columns=self.columns, show="headings", height=15)
         
         # Configure base columns initially
         for col in self.base_columns:
-            self.out.heading(col, text=col)
-            if col in ("Type", "Verdict"):
-                self.out.column(col, anchor="center", stretch=True, minwidth=80, width=120)
+            self.out.heading(col, text=col, anchor="w")
+            if col in ("Type",):
+                self.out.column(col, anchor="w", stretch=True, minwidth=80, width=120)
             elif col == "IOC":
                 self.out.column(col, anchor="w", stretch=True, minwidth=200, width=300)
-            elif col == "Flagged By":
-                self.out.column(col, anchor="w", stretch=True, minwidth=120, width=180)
         
         def _resize(event):
             total = event.width
@@ -282,21 +284,18 @@ class IOCCheckerGUI:
             active_providers = self._selected_providers()
             provider_count = len(active_providers)
             
-            # Proportional sizing: Type(8%), IOC(35%), Verdict(12%), Flagged By(15%), Providers(30% total)
-            type_width = int(total * 0.08)
-            ioc_width = int(total * 0.35)
-            verdict_width = int(total * 0.12)
-            flagged_width = int(total * 0.15)
-            provider_total = int(total * 0.30)
-            provider_width = provider_total // provider_count if provider_count else 80
+            # Proportional sizing without Verdict/Flagged By: Type(10%), IOC(40%), Providers(remaining)
+            type_width = int(total * 0.10)
+            ioc_width = int(total * 0.40)
+            provider_total = max(total - (type_width + ioc_width), 200)
+            provider_width = provider_total // provider_count if provider_count else 120
             
-            self.out.column("Type", width=max(type_width, 60))
+            self.out.column("Type", width=max(type_width, 80))
             self.out.column("IOC", width=max(ioc_width, 200))
-            self.out.column("Verdict", width=max(verdict_width, 80))
-            self.out.column("Flagged By", width=max(flagged_width, 120))
             
             for provider in active_providers:
-                self.out.column(provider.NAME, width=max(provider_width, 80))
+                # ensure provider columns are left-aligned
+                self.out.column(provider.NAME, anchor="w", width=max(provider_width, 100))
         
         self.out.bind("<Configure>", _resize)
         
@@ -334,15 +333,13 @@ class IOCCheckerGUI:
         
         # Set up headings and column properties for all columns
         for col in self.columns:
-            self.out.heading(col, text=col)
-            if col in ("Type", "Verdict"):
-                self.out.column(col, anchor="center", stretch=True, minwidth=80, width=120)
+            self.out.heading(col, text=col, anchor="w")
+            if col in ("Type",):
+                self.out.column(col, anchor="w", stretch=True, minwidth=80, width=120)
             elif col == "IOC":
                 self.out.column(col, anchor="w", stretch=True, minwidth=200, width=300)
-            elif col == "Flagged By":
-                self.out.column(col, anchor="w", stretch=True, minwidth=120, width=180)
             else:  # Provider columns
-                self.out.column(col, anchor="center", stretch=True, minwidth=80, width=120)
+                self.out.column(col, anchor="w", stretch=True, minwidth=80, width=120)
     
     def _show_about(self):
         about_text = (
@@ -540,7 +537,16 @@ class IOCCheckerGUI:
             messagebox.showerror("Error", "No valid providers available for scanning.\n\nPlease go to Tools > Configure Providers to select which providers to use.")
             return
         
-        placeholder = self.out.insert('', 'end', values=tuple([ioc_type, ioc_value, "Processing...", ""] + [""] * len(selected_providers)))
+        # Providers that can actually scan this IOC type
+        supported_providers = [p for p in selected_providers if ioc_type in getattr(p, 'SUPPORTED_TYPES', set())]
+        if not supported_providers:
+            messagebox.showwarning("Unsupported", f"No selected provider supports '{ioc_type}' IOCs.")
+            return
+        
+        # Place a placeholder; show progress text in the first provider column
+        first_provider_cell = ["Processing..."] if selected_providers else []
+        placeholder_values = [ioc_type, ioc_value] + first_provider_cell + [""] * max(0, (len(selected_providers) - 1))
+        placeholder = self.out.insert('', 'end', values=tuple(placeholder_values))
         self.root.update()
         
         if self.loop is None:
@@ -548,7 +554,7 @@ class IOCCheckerGUI:
             return
         
         future = asyncio.run_coroutine_threadsafe(
-            scan_ioc(ioc_value, ioc_type, selected_providers), self.loop
+            scan_ioc(ioc_value, ioc_type, supported_providers), self.loop
         )
         future.add_done_callback(
             functools.partial(self._on_scan_done, ioc_value, ioc_type, placeholder)
@@ -567,12 +573,10 @@ class IOCCheckerGUI:
         active_providers = getattr(self, '_cached_providers', None) or self._selected_providers()
         
         if error_msg:
-            row_values = [ioc_type, ioc, "Error", error_msg] + [""] * len(active_providers)
+            # Put error text into the first provider column
+            first_cell = [f"Error - {error_msg}"] if active_providers else []
+            row_values = [ioc_type, ioc] + first_cell + [""] * max(0, (len(active_providers) - 1))
         else:
-            overall_verdict = aggregate_verdict(list(results.values()))
-            flagged_providers = [name for name, result in results.items() 
-                               if result.status == IOCStatus.MALICIOUS]
-            
             provider_values = []
             for provider in active_providers:
                 provider_name = provider.NAME.lower()
@@ -588,12 +592,7 @@ class IOCCheckerGUI:
                 else:
                     provider_values.append("")
             
-            row_values = [
-                ioc_type,
-                ioc,
-                _STATUS_MAP.get(overall_verdict, overall_verdict.name) or "Unknown",
-                ", ".join(flagged_providers)
-            ] + provider_values
+            row_values = [ioc_type, ioc] + provider_values
         
         if placeholder and self.out.exists(placeholder):
             self.out.item(placeholder, values=tuple(row_values))
@@ -653,9 +652,10 @@ class IOCCheckerGUI:
                 # If action == 'proceed', continue with all IOCs
             
             # Start the actual batch processing
-
-            # Insert progress row and track it for later removal
-            processing_values = ["Batch", filename, f"Processing {len(iocs)} IOCs...", ""] + [""] * len(selected_providers)
+            
+            # Insert progress row and track it for later removal (put text in first provider column)
+            first_provider_cell = [f"Processing {len(iocs)} IOCs..."] if selected_providers else []
+            processing_values = ["Batch", filename] + first_provider_cell + [""] * max(0, (len(selected_providers) - 1))
             progress_placeholder = self.out.insert('', 'end', values=tuple(processing_values))
             self.root.update()
             
@@ -845,6 +845,13 @@ class IOCCheckerGUI:
                     # Export results to CSV
                     csv_path = self._export_batch_results(filename, csv_results)
                     
+                    # Also export a PDF version and remember the path for auto-open
+                    try:
+                        self._last_export_pdf_path = self._export_batch_results_pdf(filename, csv_results, cancelled=False)
+                    except Exception:
+                        self._last_export_pdf_path = None
+                    self._last_export_csv_path = csv_path
+                    
                     summary_message = f"Batch processing complete!\n\nValid IOCs processed: {valid_count}\nInvalid IOCs skipped: {invalid_count}"
                     if duplicate_count > 0:
                         summary_message += f"\nDuplicate IOCs skipped: {duplicate_count}"
@@ -853,7 +860,11 @@ class IOCCheckerGUI:
                         summary_message += f"\n\nResults exported to: {csv_path}"
                     
                     log.debug(f"[{task_id}] process_batch() completed successfully, scheduling completion callback")
-                    self.root.after(0, lambda: self._batch_complete(summary_message))
+                    # Show improved popup with quick actions
+                    def _show():
+                        lines = summary_message.split("\n")
+                        self._show_completion_dialog("Batch Complete", lines)
+                    self.root.after(0, _show)
                     
                 except asyncio.CancelledError:
                     log.debug(f"[{task_id}] process_batch() cancelled")
@@ -870,12 +881,18 @@ class IOCCheckerGUI:
                         csv_results.sort(key=lambda r: index_map.get(r['ioc'], 999999))
                         
                         csv_path = self._export_batch_results(filename, csv_results, cancelled=True)
+                        # Try to export PDF as well
+                        try:
+                            self._last_export_pdf_path = self._export_batch_results_pdf(filename, csv_results, cancelled=True)
+                        except Exception:
+                            self._last_export_pdf_path = None
+                        self._last_export_csv_path = csv_path
                         cancel_msg = f"Batch processing cancelled.\n\nProcessed {len(csv_results)} IOCs before cancellation."
                         if csv_path:
                             cancel_msg += f"\n\nPartial results exported to: {csv_path}"
-                        self.root.after(0, lambda: self._batch_cancelled(cancel_msg))
+                        self.root.after(0, lambda: self._show_completion_dialog("Batch Cancelled", cancel_msg.split("\n")))
                     else:
-                        self.root.after(0, lambda: self._batch_cancelled("Batch processing cancelled."))
+                        self.root.after(0, lambda: self._show_completion_dialog("Batch Cancelled", ["Batch processing cancelled."]))
                     raise
                 finally:
                     # Clear cached providers
@@ -902,7 +919,7 @@ class IOCCheckerGUI:
     
     def _batch_complete(self, message):
         """Handle batch completion."""
-        messagebox.showinfo("Batch Complete", message)
+        self._show_completion_dialog("Batch Complete", message.split("\n"))
         self._reset_batch_ui()
     
     def _batch_cancelled(self, message):
@@ -1142,10 +1159,185 @@ class IOCCheckerGUI:
                 writer.writeheader()
                 writer.writerows(filtered_results)
             
-            return str(output_path)
+            # Keep CSV for compatibility (tests read it)
+            path_str = str(output_path)
+            self._last_export_csv_path = path_str
+            return path_str
         except Exception as e:
             self.root.after(0, lambda: messagebox.showerror("Export Error", f"Failed to export results: {str(e)}"))
             return None
+    
+    def _export_batch_results_pdf(self, input_filename, results, cancelled=False):
+        """Export batch results to a table-formatted PDF (landscape) without external deps.
+        Columns: Type | IOC | Verdict | Provider. Long cells wrap word-wise.
+        """
+        input_path = Path(input_filename)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        status_suffix = "_cancelled" if cancelled else ""
+        output_filename = f"batch_results_{timestamp}{status_suffix}.pdf"
+        pdf_path = input_path.parent / output_filename
+
+        # Page setup (A4 landscape)
+        PAGE_W, PAGE_H = 842, 595
+        MARGIN = 36
+        GAP = 8
+        FONT_SIZE = 11  # bold, clearer
+        LEADING = 16
+
+        # Column widths (sum <= usable width)
+        usable_w = PAGE_W - 2 * MARGIN
+        col_type_w = 60
+        col_verdict_w = 90
+        col_provider_w = 160
+        col_ioc_w = usable_w - (col_type_w + col_verdict_w + col_provider_w + 3 * GAP)
+        x_type = MARGIN
+        x_ioc = x_type + col_type_w + GAP
+        x_ver = x_ioc + col_ioc_w + GAP
+        x_prov = x_ver + col_verdict_w + GAP
+
+        # Character width approximation for monospaced Courier-Bold
+        char_w = 0.6 * FONT_SIZE  # points per character
+        def capacity(px: int) -> int:
+            return max(int(px / char_w), 1)
+
+        cap_type = capacity(col_type_w)
+        cap_ioc = capacity(col_ioc_w)
+        cap_ver = capacity(col_verdict_w)
+        cap_prov = capacity(col_provider_w)
+
+        def esc(s: str) -> str:
+            return s.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+        def wrap_wordwise(s: str, max_chars: int) -> list[str]:
+            if not s:
+                return [""]
+            words = s.split(" ")
+            lines = []
+            current = ""
+            for w in words:
+                if not current:
+                    if len(w) <= max_chars:
+                        current = w
+                    else:
+                        # break long word
+                        while len(w) > max_chars:
+                            lines.append(w[:max_chars])
+                            w = w[max_chars:]
+                        current = w
+                else:
+                    if len(current) + 1 + len(w) <= max_chars:
+                        current += " " + w
+                    else:
+                        lines.append(current)
+                        while len(w) > max_chars:
+                            lines.append(w[:max_chars])
+                            w = w[max_chars:]
+                        current = w
+            lines.append(current)
+            return lines
+
+        # Table rows
+        rows = []
+        for r in results:
+            if r.get('type') == 'Batch':
+                continue
+            rows.append((
+                str(r.get('type', '')),
+                str(r.get('ioc', '')),
+                str(r.get('verdict', '')),
+                str(r.get('flagged_by', '')),
+            ))
+
+        # Build content stream (text and a few lines)
+        content: list[bytes] = []
+
+        def add_text(x: int, y: int, txt: str) -> None:
+            content.append(
+                f"BT /F1 {FONT_SIZE} Tf 1 0 0 1 {x} {y} Tm ({esc(txt)}) Tj ET\n".encode("latin-1", errors="replace")
+            )
+
+        # Header
+        y = PAGE_H - MARGIN
+        add_text(MARGIN, y, "IOC Checker Results")
+        y -= LEADING
+        add_text(MARGIN, y, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        y -= (LEADING * 2)
+
+        # Table header
+        add_text(x_type, y, "Type")
+        add_text(x_ioc, y, "IOC")
+        add_text(x_ver, y, "Verdict")
+        add_text(x_prov, y, "Provider")
+        y -= LEADING
+
+        # Horizontal rule
+        rule_x1 = MARGIN
+        rule_x2 = PAGE_W - MARGIN
+        content.append(f"{rule_x1} {y} m {rule_x2} {y} l S\n".encode("ascii"))
+        y -= LEADING
+
+        # Rows
+        for t, ioc, ver, prov in rows:
+            wt = wrap_wordwise(t, cap_type)
+            wi = wrap_wordwise(ioc, cap_ioc)
+            wv = wrap_wordwise(ver, cap_ver)
+            wp = wrap_wordwise(prov, cap_prov)
+            lines = max(len(wt), len(wi), len(wv), len(wp))
+
+            for idx in range(lines):
+                add_text(x_type, y, wt[idx] if idx < len(wt) else "")
+                add_text(x_ioc, y, wi[idx] if idx < len(wi) else "")
+                add_text(x_ver, y, wv[idx] if idx < len(wv) else "")
+                add_text(x_prov, y, wp[idx] if idx < len(wp) else "")
+                y -= LEADING
+
+                if y < MARGIN + LEADING:
+                    content.append(f"{rule_x1} {y} m {rule_x2} {y} l S\n".encode("ascii"))
+                    y = PAGE_H - MARGIN
+                    # Reprint header on new page
+                    add_text(x_type, y, "Type")
+                    add_text(x_ioc, y, "IOC")
+                    add_text(x_ver, y, "Verdict")
+                    add_text(x_prov, y, "Provider")
+                    y -= LEADING
+                    content.append(f"{rule_x1} {y} m {rule_x2} {y} l S\n".encode("ascii"))
+                    y -= LEADING
+
+        # Bottom rule
+        content.append(f"{rule_x1} {max(y, MARGIN)} m {rule_x2} {max(y, MARGIN)} l S\n".encode("ascii"))
+
+        # Build PDF
+        content_bytes = b"".join(content)
+        objects = []
+        def add_obj(obj: bytes) -> int:
+            objects.append(obj)
+            return len(objects)
+        add_obj(b"<< /Type /Font /Subtype /Type1 /BaseFont /Courier-Bold >>")
+        add_obj(b"<< /Length %d >>\nstream\n" % len(content_bytes) + content_bytes + b"endstream")
+        add_obj(
+            b"<< /Type /Page /Parent 4 0 R /MediaBox [0 0 842 595] "
+            b"/Resources << /Font << /F1 1 0 R >> >> /Contents 2 0 R >>"
+        )
+        add_obj(b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+        root_id = add_obj(b"<< /Type /Catalog /Pages 4 0 R >>")
+        with open(pdf_path, "wb") as fh:
+            fh.write(b"%PDF-1.4\n")
+            offsets = [0]
+            for i, obj in enumerate(objects, start=1):
+                offsets.append(fh.tell())
+                fh.write(f"{i} 0 obj\n".encode("ascii"))
+                fh.write(obj)
+                fh.write(b"\nendobj\n")
+            xref_pos = fh.tell()
+            fh.write(b"xref\n0 %d\n" % (len(objects) + 1))
+            fh.write(b"0000000000 65535 f \n")
+            for off in offsets[1:]:
+                fh.write(f"{off:010d} 00000 n \n".encode("ascii"))
+            fh.write(b"trailer<< /Size %d /Root %d 0 R >>\n" % (len(objects) + 1, root_id))
+            fh.write(b"startxref\n")
+            fh.write(f"{xref_pos}\n".encode("ascii"))
+            fh.write(b"%%EOF")
+        return str(pdf_path)
     
     def _configure_api_keys(self):
         config_win = tk.Toplevel(self.root)
@@ -1346,13 +1538,10 @@ class IOCCheckerGUI:
         log.debug(f"[{task_id}] update_table_with_cached_providers() called for ioc='{ioc}', type='{ioc_type}', error_msg='{error_msg}'")
         
         if error_msg:
-            row_values = [ioc_type, ioc, "Error", error_msg] + [""] * len(providers)
+            first_cell = [f"Error - {error_msg}"] if providers else []
+            row_values = [ioc_type, ioc] + first_cell + [""] * max(0, (len(providers) - 1))
             log.debug(f"[{task_id}] Creating error row for ioc='{ioc}': {row_values}")
         else:
-            overall_verdict = aggregate_verdict(list(results.values()))
-            flagged_providers = [name for name, result in results.items() 
-                               if result.status == IOCStatus.MALICIOUS]
-            
             provider_values = []
             for provider in providers:
                 provider_name = provider.NAME.lower()
@@ -1368,13 +1557,8 @@ class IOCCheckerGUI:
                 else:
                     provider_values.append("")
             
-            row_values = [
-                ioc_type,
-                ioc,
-                _STATUS_MAP.get(overall_verdict, overall_verdict.name) or "Unknown",
-                ", ".join(flagged_providers)
-            ] + provider_values
-            log.debug(f"[{task_id}] Creating result row for ioc='{ioc}': verdict={overall_verdict.name}, flagged_by={flagged_providers}")
+            row_values = [ioc_type, ioc] + provider_values
+            log.debug(f"[{task_id}] Creating result row for ioc='{ioc}': providers={len(providers)}")
         
         if placeholder and self.out.exists(placeholder):
             log.debug(f"[{task_id}] Updating existing placeholder row for ioc='{ioc}'")
@@ -1385,6 +1569,47 @@ class IOCCheckerGUI:
         
         self.all_results.append(tuple(row_values))
         log.debug(f"[{task_id}] update_table_with_cached_providers() completed for ioc='{ioc}'")
+
+    def _open_path(self, path: str | None) -> None:
+        if not path or not os.path.exists(path):
+            return
+        try:
+            if sys.platform.startswith("win"):
+                os.startfile(path)  # type: ignore[attr-defined]
+            elif sys.platform == "darwin":
+                import subprocess
+                subprocess.Popen(["open", path])
+            else:
+                import subprocess
+                subprocess.Popen(["xdg-open", path])
+        except Exception:
+            pass
+
+    def _show_completion_dialog(self, title: str, summary: list[str]) -> None:
+        dlg = tk.Toplevel(self.root)
+        dlg.title(title)
+        dlg.transient(self.root)
+        dlg.grab_set()
+        dlg.resizable(False, False)
+        frame = ttk.Frame(dlg, padding=20)
+        frame.pack(fill="both", expand=True)
+        msg = "\n".join(summary)
+        ttk.Label(frame, text=msg, justify="left").pack(anchor="w")
+        btns = ttk.Frame(frame)
+        btns.pack(fill="x", pady=(15, 0))
+        if getattr(self, "_last_export_pdf_path", None):
+            ttk.Button(btns, text="Open PDF", command=lambda: self._open_path(self._last_export_pdf_path)).pack(side="left")
+        if getattr(self, "_last_export_csv_path", None):
+            ttk.Button(btns, text="Open CSV", command=lambda: self._open_path(self._last_export_csv_path)).pack(side="left", padx=(8,0))
+        # Open folder button prioritizes PDF folder
+        folder_path = None
+        if self._last_export_pdf_path and os.path.exists(self._last_export_pdf_path):
+            folder_path = os.path.dirname(self._last_export_pdf_path)
+        elif self._last_export_csv_path and os.path.exists(self._last_export_csv_path):
+            folder_path = os.path.dirname(self._last_export_csv_path)
+        if folder_path:
+            ttk.Button(btns, text="Open Folder", command=lambda: self._open_path(folder_path)).pack(side="left", padx=(8,0))
+        ttk.Button(btns, text="Close", command=dlg.destroy).pack(side="right")
 
     def run(self):
         self.root.mainloop()

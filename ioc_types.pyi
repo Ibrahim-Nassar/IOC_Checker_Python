@@ -12,6 +12,7 @@ class IOCStatus(Enum):
     MALICIOUS: "IOCStatus"
     ERROR: "IOCStatus"
     UNSUPPORTED: "IOCStatus"
+    NOT_FOUND: "IOCStatus"
 
 # --------------------------------------------------------------------------- 
 # IOCResult (runtime is a Pydantic model, but we expose the real signature)
