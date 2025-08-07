@@ -152,28 +152,74 @@ def _strip_port(v: str) -> str:
     # If no port pattern detected or stripping failed, return original
     return v
 
+def _valid_url(v:str)->bool:
+    try:
+        p = urllib.parse.urlparse(v)
+        
+        # Must have proper scheme
+        if p.scheme not in ("http", "https", "ftp", "ftps"):
+            return False
+        
+        # Must have netloc (domain)
+        if not p.netloc:
+            return False
+        
+        # Check for common invalid patterns in the whole URL
+        if ".." in v:  # consecutive dots anywhere in URL
+            return False
+        if v.endswith("/.") or "/./" in v or v.endswith("./"):  # path ending with /. or ./ or containing /./
+            return False
+        if v.endswith(".") and not any(v.endswith(f".{ext}") for ext in ['html', 'php', 'aspx', 'jsp', 'css', 'js', 'json', 'xml', 'txt', 'pdf']):
+            return False
+        
+        # Validate the domain part of the URL
+        domain = p.netloc.split(':')[0]  # Remove port if present
+        if not _valid_domain(domain):
+            return False
+        
+        # More lenient path validation - allow most paths that don't have obvious issues
+        if p.path:
+            # Only reject obviously malformed paths
+            if p.path.startswith("//") or "//" in p.path[1:]:  # Multiple consecutive slashes
+                return False
+            
+            # Reject any path segment that ends with a trailing dot
+            path_parts = [part for part in p.path.split('/') if part]
+            for part in path_parts:
+                # Reject pure dots or segments ending with a dot
+                if part in ['.', '..'] or part.endswith('.'):
+                    return False
+        
+        return True
+        
+    except Exception:
+        return False
+
 def _valid_ip(v:str)->bool:
     try: 
         # Handle bracketed IPv6 (extract the IP from brackets first)
         if v.startswith('[') and (']:' in v or v.endswith(']')):
             # Extract IP from [IP]:port or [IP] format
-            if ']:' in v:
-                ip_part = v.split(']:')[0][1:]  # Remove [ and extract IP
-            else:
-                ip_part = v[1:-1]  # Remove [ and ]
-            ipaddress.ip_address(ip_part)
+            ip_part = v[1:v.index(']')] if ']' in v else v[1:-1]
+            # Strip zone identifier if present (e.g., %eth0)
+            ip_no_zone = ip_part.split('%', 1)[0]
+            ipaddress.ip_address(ip_no_zone)
             return True
         
-        # First check the basic format - should have exactly 3 dots for IPv4
+        # IPv4 with optional port
         if v.count('.') == 3:
-            ipaddress.ip_address(_extract_ip(v))
+            ip_str = _extract_ip(_strip_port(v))
+            ipaddress.ip_address(ip_str)
             return True
-        # IPv6 addresses don't have dots in this context, they use colons
-        elif ':' in v and '.' not in v:
-            ipaddress.ip_address(v)
+        
+        # IPv6 (raw) with optional port and/or zone id
+        if ':' in v and '.' not in v:
+            ip_str = _strip_port(v)
+            ip_str = ip_str.split('%', 1)[0]  # remove zone id if present
+            ipaddress.ip_address(ip_str)
             return True
-        else:
-            return False
+        
+        return False
     except ValueError: 
         return False
 
@@ -218,50 +264,6 @@ def _valid_domain(v:str)->bool:
             return False
     
     return True
-
-def _valid_url(v:str)->bool:
-    try:
-        p = urllib.parse.urlparse(v)
-        
-        # Must have proper scheme
-        if p.scheme not in ("http", "https", "ftp", "ftps"):
-            return False
-        
-        # Must have netloc (domain)
-        if not p.netloc:
-            return False
-        
-        # Check for common invalid patterns in the whole URL
-        if ".." in v:  # consecutive dots anywhere in URL
-            return False
-        if v.endswith("/.") or "/./" in v or v.endswith("./"):  # path ending with /. or ./ or containing /./
-            return False
-        if v.endswith(".") and not any(v.endswith(f".{ext}") for ext in ['html', 'php', 'aspx', 'jsp', 'css', 'js', 'json', 'xml', 'txt', 'pdf']):
-            return False
-        
-        # Validate the domain part of the URL
-        domain = p.netloc.split(':')[0]  # Remove port if present
-        if not _valid_domain(domain):
-            return False
-        
-        # More lenient path validation - allow most paths that don't have obvious issues
-        if p.path:
-            # Only reject obviously malformed paths
-            if p.path.startswith("//") or "//" in p.path[1:]:  # Multiple consecutive slashes
-                return False
-            
-            # Allow paths with normal extensions and directories
-            # Only reject if path components are just dots without extensions
-            path_parts = [part for part in p.path.split('/') if part]
-            for part in path_parts:
-                # Only reject pure dots without any context
-                if part in ['.', '..']:
-                    return False
-        
-        return True
-        
-    except Exception:
-        return False
 
 def _valid_hash(v:str)->bool:     return bool(_RE_HASH.fullmatch(v))
 def _valid_email(v:str)->bool:    return bool(_RE_EMAIL.fullmatch(v))

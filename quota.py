@@ -39,7 +39,8 @@ def _save(data: dict) -> None:
                 # Cross-platform safety: some systems don't support fsync
                 import logging
                 logging.debug(f"fsync not supported or failed: {e}")
-        temp_path.replace(_PATH)
+        # Use os.replace for atomic move so tests can monkeypatch
+        os.replace(str(temp_path), str(_PATH))
 
 def increment(key: str, amount: int = 1) -> None:
     """Deprecated: Use increment_provider() instead for consistent date-scoped tracking."""

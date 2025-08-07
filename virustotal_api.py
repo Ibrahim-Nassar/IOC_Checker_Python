@@ -46,7 +46,19 @@ class VirusTotalProvider(BaseProvider):
         headers = {"x-apikey": self._key}
         
         try:
-            data = await self._safe_request(url, headers=headers)
+            # Try the lightweight shim first so tests can easily mock HTTP
+            try:
+                resp = await aget(url, headers=headers)
+                if hasattr(resp, "status_code") and resp.status_code != 200:
+                    raise Exception(f"HTTP {getattr(resp, 'status_code', 'unknown')}")
+                if hasattr(resp, "json"):
+                    data = resp.json()
+                else:
+                    # Fallback to robust client if shim doesn't provide JSON
+                    data = await self._safe_request(url, headers=headers)
+            except Exception:
+                # On any shim failure, fall back to robust HTTP path
+                data = await self._safe_request(url, headers=headers)
             
             if "data" not in data or "attributes" not in data["data"]:
                 return self._create_error_result(ioc, ioc_type, "Unexpected API response structure")
