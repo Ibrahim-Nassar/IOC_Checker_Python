@@ -160,8 +160,16 @@ def _valid_url(v:str)->bool:
         if p.scheme not in ("http", "https", "ftp", "ftps"):
             return False
         
-        # Must have netloc (domain)
+        # Must have netloc (host)
         if not p.netloc:
+            return False
+        
+        # Validate the host: allow domain names OR IP literals (IPv4/IPv6)
+        host = p.hostname  # Already without brackets and port
+        if not host:
+            return False
+        
+        if not (_valid_domain(host) or _valid_ip(host)):
             return False
         
         # Check for common invalid patterns in the whole URL
@@ -172,21 +180,12 @@ def _valid_url(v:str)->bool:
         if v.endswith(".") and not any(v.endswith(f".{ext}") for ext in ['html', 'php', 'aspx', 'jsp', 'css', 'js', 'json', 'xml', 'txt', 'pdf']):
             return False
         
-        # Validate the domain part of the URL
-        domain = p.netloc.split(':')[0]  # Remove port if present
-        if not _valid_domain(domain):
-            return False
-        
-        # More lenient path validation - allow most paths that don't have obvious issues
+        # Path validation: reject obviously malformed segments
         if p.path:
-            # Only reject obviously malformed paths
             if p.path.startswith("//") or "//" in p.path[1:]:  # Multiple consecutive slashes
                 return False
-            
-            # Reject any path segment that ends with a trailing dot
             path_parts = [part for part in p.path.split('/') if part]
             for part in path_parts:
-                # Reject pure dots or segments ending with a dot
                 if part in ['.', '..'] or part.endswith('.'):
                     return False
         
