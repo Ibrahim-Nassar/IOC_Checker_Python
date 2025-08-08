@@ -18,7 +18,7 @@ import csv
 from datetime import datetime
 from ioc_types import IOCStatus, validate_ioc
 from ioc_checker import scan_ioc
-from api_key_store import save as save_key, load as load_key
+from api_key_store import save as save_key, load as load_key, load_saved_keys
 from loader import load_iocs as _load_iocs
 
 # Enable pytest module aliasing
@@ -173,22 +173,8 @@ class IOCCheckerGUI:
         self.file_var = tk.StringVar()
         self.dark_mode = tk.BooleanVar(value=False)
         
-        # Load saved API keys before any provider discovery
-        _API_VARS = ("VIRUSTOTAL_API_KEY", "OTX_API_KEY",
-                     "ABUSEIPDB_API_KEY")
-        
-        loaded_keys = []
-        for var in _API_VARS:
-            val = load_key(var)
-            if val:
-                os.environ[var] = val
-                loaded_keys.append(var)
-        
-        # Log which API keys were loaded for debugging
-        if loaded_keys:
-            logging.info(f"Loaded {len(loaded_keys)} saved API keys: {', '.join(loaded_keys)}")
-        else:
-            logging.info("No saved API keys found")
+        # Load saved API keys via centralized helper (idempotent)
+        load_saved_keys()
         
         self._create_menu()
         self._build_ui()
@@ -201,6 +187,18 @@ class IOCCheckerGUI:
     def _on_close(self) -> None:
         """Gracefully stop the background event loop and close the GUI."""
         global _GUI_LOOP_RUNNING, _GUI_LOOP, _GUI_LOOP_THREAD
+        
+        # Persist any API keys currently set in the environment so they survive restarts
+        try:
+            for var in ("VIRUSTOTAL_API_KEY", "OTX_API_KEY", "ABUSEIPDB_API_KEY"):
+                val = os.getenv(var)
+                if val and val.strip():
+                    try:
+                        save_key(var, val)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
         
         if _GUI_LOOP and not _GUI_LOOP.is_closed():
             _GUI_LOOP.call_soon_threadsafe(_GUI_LOOP.stop)
