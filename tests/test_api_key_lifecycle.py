@@ -4,9 +4,8 @@ Comprehensive tests for API key persistence across GUI lifecycles.
 Ensures all provider keys persist reliably across sessions.
 """
 import os
-import tempfile
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from pathlib import Path
 import pytest
 

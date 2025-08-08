@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Unit tests for IOC validation functionality."""
 
-import pytest
 from ioc_types import validate_ioc
 
 

@@ -1,8 +1,6 @@
 """Tests for quota day rollover functionality."""
-import pytest
-from unittest.mock import patch, mock_open
-from datetime import date, datetime, timedelta
-import json
+from unittest.mock import patch
+from datetime import date
 
 from quota import increment_provider, remaining, _today_key
 
@@ -26,7 +24,7 @@ class TestQuotaDayRollover:
             # Day 1
             with patch('quota._today_key', return_value="2023-12-25"):
                 increment_provider("VirusTotal", 10)
-                
+            
             # Day 2
             with patch('quota._today_key', return_value="2023-12-26"):
                 increment_provider("VirusTotal", 5)
@@ -90,7 +88,7 @@ class TestQuotaDayRollover:
     def test_file_locking_across_days(self, mock_path):
         """Test that file locking works correctly across day boundaries."""
         with patch('quota._load', return_value={}), \
-             patch('quota._save') as mock_save, \
+             patch('quota._save'), \
              patch('quota._LOCK') as mock_lock:
             
             # Simulate concurrent access on day boundary

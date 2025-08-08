@@ -6,7 +6,6 @@ import pytest
 import os
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
 
 from loader import stream_iocs, load_iocs
 

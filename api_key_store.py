@@ -18,7 +18,9 @@ load(provider_env_var: str) -> str | None
 
 from __future__ import annotations
 
-import json, os, logging
+import json
+import os
+import logging
 from pathlib import Path
 from typing import Dict
 from filelock import FileLock
@@ -37,6 +39,7 @@ class KeyringError(Exception):
 # Cross-platform config directory helper
 # ---------------------------------------------------------------------------
 
+
 def _get_config_dir() -> Path:
     """Return an OS-appropriate per-user config directory."""
     if os.name == "nt":  # Windows – use %APPDATA%\ioc-checker
@@ -45,14 +48,16 @@ def _get_config_dir() -> Path:
         base = Path(os.getenv("XDG_CONFIG_HOME", Path.home() / ".config"))
     return base / "ioc-checker"
 
+
 _CONFIG_DIR = _get_config_dir()
 _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 _KEY_FILE = _CONFIG_DIR / "keys.json"
-_LOCK     = FileLock(str(_KEY_FILE) + ".lock")
+_LOCK = FileLock(str(_KEY_FILE) + ".lock")
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _load_all() -> Dict[str, str]:
     if not _KEY_FILE.exists():
@@ -63,6 +68,7 @@ def _load_all() -> Dict[str, str]:
     except Exception as exc:  # pragma: no cover – corruption / permissions
         log.warning("Failed to load key store %s: %s", _KEY_FILE, exc)
         return {}
+
 
 def _save_all(data: Dict[str, str]) -> None:
     tmp = _KEY_FILE.with_suffix(".tmp")
@@ -78,6 +84,7 @@ def _save_all(data: Dict[str, str]) -> None:
 # ---------------------------------------------------------------------------
 # Public API – unchanged signatures
 # ---------------------------------------------------------------------------
+
 
 def save(provider_env_var: str, value: str | None) -> None:
     """Persist *value* for *provider_env_var*.
@@ -96,7 +103,7 @@ def load(provider_env_var: str) -> str | None:
     """Retrieve stored key for *provider_env_var*.
     Environment variables override file-stored values to support containers/CI.
     """
-    return os.getenv(provider_env_var) or _load_all().get(provider_env_var) 
+    return os.getenv(provider_env_var) or _load_all().get(provider_env_var)
 
 
 def load_saved_keys() -> None:
@@ -106,7 +113,7 @@ def load_saved_keys() -> None:
     Loads keys for: VIRUSTOTAL_API_KEY, OTX_API_KEY, ABUSEIPDB_API_KEY
     """
     _API_VARS = ("VIRUSTOTAL_API_KEY", "OTX_API_KEY", "ABUSEIPDB_API_KEY")
-    
+
     loaded_keys = []
     for var in _API_VARS:
         # Only set if not already in environment (idempotent)
@@ -115,7 +122,7 @@ def load_saved_keys() -> None:
             if val:
                 os.environ[var] = val
                 loaded_keys.append(var)
-    
+
     # Log results
     if loaded_keys:
         log.info(f"Loaded {len(loaded_keys)} saved API keys: {', '.join(loaded_keys)}")

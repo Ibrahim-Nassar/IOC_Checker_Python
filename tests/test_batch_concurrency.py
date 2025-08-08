@@ -4,7 +4,6 @@ Test batch processing concurrency to ensure GUI doesn't freeze.
 """
 import asyncio
 import time
-from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from ioc_types import IOCResult, IOCStatus
@@ -129,8 +128,8 @@ def test_progress_tracking_simulation():
         return progress_text
     
     # Simulate concurrent IOC processing completing at different times
-    for i in range(total_iocs):
-        progress = update_progress()
+    for _ in range(total_iocs):
+        update_progress()
         
     # Verify progress reaches 100%
     assert completed_count == total_iocs

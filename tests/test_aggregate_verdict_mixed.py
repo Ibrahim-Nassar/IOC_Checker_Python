@@ -1,5 +1,4 @@
 """Test aggregate_verdict with mixed MALICIOUS + ERROR scenarios."""
-import pytest
 import sys
 import os
 

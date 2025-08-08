@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Light-weight IOC loader used by GUI, CLI, and tests.
 
 The goal is **not** to provide a full‐blown parser – only a pragmatic
@@ -16,9 +14,10 @@ An extremely small heuristic is used to guess the IOC type when it is not
 explicitly supplied by the input file.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 import csv
-import re
 from typing import Dict, List
 
 from ioc_types import detect_ioc_type
@@ -87,7 +86,7 @@ def _load_csv(path: Path):
 
 # Public API ───────────────────────────────────────────────────────────────────
 
-def load_iocs(path: Path) -> List[Dict[str, str]]:  # noqa: WPS231 (simple func)
+def load_iocs(path: Path) -> List[Dict[str, str]]:
     """Return list of IOC dicts extracted from *path*.
 
     Supported formats: ``.txt`` and ``.csv``.  Raises *ValueError* for

@@ -1,7 +1,9 @@
-import os, importlib, types
+import os
+import importlib
 import pytest
 from unittest.mock import patch, MagicMock
 from api_key_store import save as save_key, load as load_key
+
 
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch, tmp_path):
@@ -18,7 +20,7 @@ def test_save_and_reload():
 
     # Import GUI class and create instance with comprehensive mocking
     with patch('IOC_Checker_Python.ioc_gui_tk.tk.Tk') as mock_tk, \
-         patch('IOC_Checker_Python.ioc_gui_tk.threading.Thread') as mock_thread, \
+         patch('IOC_Checker_Python.ioc_gui_tk.threading.Thread'), \
          patch('IOC_Checker_Python.ioc_gui_tk.asyncio.new_event_loop') as mock_loop:
         
         mock_root = MagicMock()
@@ -34,7 +36,7 @@ def test_save_and_reload():
              patch.object(cls, '_poll_queue'):
             
             # Create an instance to trigger __init__ and API key loading
-            instance = cls()
+            cls()
         
     assert os.environ["VIRUSTOTAL_API_KEY"] == "dummy123"
     assert load_key("VIRUSTOTAL_API_KEY") == "dummy123" 

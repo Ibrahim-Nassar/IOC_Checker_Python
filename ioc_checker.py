@@ -4,13 +4,10 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
-import os
 import sys
-from typing import Dict, Literal, Any, cast
-import contextlib
+from typing import Dict, Any, cast
 
 from ioc_types import IOCResult, IOCStatus, detect_ioc_type
-import providers
 from api_key_store import load_saved_keys
 
 # ── ensure UTF-8 capable streams without upsetting Pyright ───────────────
@@ -153,7 +150,7 @@ async def scan_ioc(ioc: str, ioc_type: str, provider_list: list | None = None) -
         try:
             provider_name, ioc_result = item  # type: ignore[misc]
             scan_results[provider_name] = ioc_result
-        except (ValueError, TypeError) as e:
+        except (ValueError, TypeError):
             # Handle unexpected item format
             exception_counter += 1
             scan_results[f"provider_error_{exception_counter}"] = IOCResult(

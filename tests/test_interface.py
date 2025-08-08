@@ -1,6 +1,5 @@
 """tests for the unified provider interface"""
 
-import pytest
 from ioc_types import IOCResult, IOCStatus
 from ioc_checker import scan_ioc_sync
 

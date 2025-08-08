@@ -2,10 +2,6 @@
 """
 Test API key persistence functionality.
 """
-import os
-import tempfile
-from pathlib import Path
-import pytest
 
 from api_key_store import save, load
 
@@ -57,8 +53,4 @@ def test_api_key_whitespace_handling():
     
     # Should load back trimmed
     loaded_key = load(env_var)
-    assert loaded_key == test_key.strip()
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"]) 
+    assert loaded_key == test_key.strip() 

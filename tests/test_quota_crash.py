@@ -1,13 +1,9 @@
 """Test quota persistence and crash recovery."""
 import json
 import os
-import signal
-import subprocess
-import sys
 import tempfile
-import time
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 
@@ -150,16 +146,16 @@ class TestQuotaCrash:
             with patch('quota._PATH', temp_path):
                 # Simulate multiple processes trying to update quota
                 import threading
-                import time
+                import time as _t
                 
                 results = []
                 errors = []
                 
                 def update_quota(provider, count):
                     try:
-                        for i in range(10):
+                        for _ in range(10):
                             increment_provider(provider, count)
-                            time.sleep(0.001)  # Small delay to increase chance of race condition
+                            _t.sleep(0.001)  # Small delay to increase chance of race condition
                         results.append(f"{provider}_success")
                     except Exception as e:
                         errors.append(f"{provider}_{e}")

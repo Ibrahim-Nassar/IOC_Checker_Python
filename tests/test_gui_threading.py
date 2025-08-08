@@ -1,10 +1,7 @@
 """Test GUI threading safety."""
 import asyncio
-import pytest
-import tkinter as tk
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock, patch
 from concurrent.futures import ThreadPoolExecutor
-import threading
 import time
 
 # TODO: Add pytest-qt for better GUI testing

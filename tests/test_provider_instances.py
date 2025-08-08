@@ -1,9 +1,7 @@
 """Tests for provider instantiation and management."""
 
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 import threading
-import time
 
 import sys
 from pathlib import Path
@@ -20,7 +18,6 @@ class TestProviderManagement:
         """Test that PROV_CLASSES is a tuple."""
         assert isinstance(providers.PROV_CLASSES, tuple)
         # Should be immutable
-        original_length = len(providers.PROV_CLASSES)
         try:
             providers.PROV_CLASSES.append(None)
             assert False, "Should not be able to modify PROV_CLASSES"
@@ -57,7 +54,7 @@ class TestProviderManagement:
         
         # Start multiple threads simultaneously
         threads = []
-        for i in range(5):
+        for _ in range(5):
             thread = threading.Thread(target=get_providers_thread)
             threads.append(thread)
             thread.start()
@@ -237,7 +234,7 @@ class TestProviderDummyImplementation:
     
     def test_empty_provider_list(self):
         """Test behavior with no providers available."""
-        with patch('providers.PROV_CLASSES', ()):
+        with patch('providers.PROV_CLASSES', () ):
             providers.refresh()  # Clear cache
             
             instances = providers.get_providers()
@@ -258,11 +255,12 @@ class TestProviderDummyImplementation:
         """Test that concurrent refresh calls don't cause issues."""
         def refresh_thread():
             providers.refresh()
-            time.sleep(0.01)  # Small delay
+            import time as _t
+            _t.sleep(0.01)  # Small delay
             providers.get_providers()
         
         threads = []
-        for i in range(3):
+        for _ in range(3):
             thread = threading.Thread(target=refresh_thread)
             threads.append(thread)
             thread.start()

@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Literal
+from typing import Literal, TYPE_CHECKING
 
 try:
     from pydantic import BaseModel
@@ -264,13 +264,20 @@ def _valid_domain(v:str)->bool:
     
     return True
 
-def _valid_hash(v:str)->bool:     return bool(_RE_HASH.fullmatch(v))
-def _valid_email(v:str)->bool:    return bool(_RE_EMAIL.fullmatch(v))
+def _valid_hash(v:str)->bool:
+    return bool(_RE_HASH.fullmatch(v))
+
+def _valid_email(v:str)->bool:
+    return bool(_RE_EMAIL.fullmatch(v))
+
 def _valid_file(v:str)->bool:     
     v_stripped = v.strip()
     # Check if it matches file path pattern
     return bool(_RE_FILE.fullmatch(v_stripped))
-def _valid_reg(v:str)->bool:      return bool(_RE_REG.match(v))
+
+def _valid_reg(v:str)->bool:
+    return bool(_RE_REG.match(v))
+
 def _valid_wallet(v:str)->bool:   
     # Wallet addresses should be between 26-64 characters and only hex
     if len(v) < 26 or len(v) > 64:
@@ -279,11 +286,18 @@ def _valid_wallet(v:str)->bool:
     if len(v) not in [26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 42, 62, 64]:
         return False
     return bool(_RE_WALLET.fullmatch(v))
+
 def _valid_asn(v:str)->bool:
-    if _RE_ASN.fullmatch(v): return True
-    try: ipaddress.ip_network(v, strict=False); return True
-    except ValueError: return False
-def _valid_attck(v:str)->bool:    return bool(_RE_ATTCK.fullmatch(v))
+    if _RE_ASN.fullmatch(v):
+        return True
+    try:
+        ipaddress.ip_network(v, strict=False)
+        return True
+    except ValueError:
+        return False
+
+def _valid_attck(v:str)->bool:
+    return bool(_RE_ATTCK.fullmatch(v))
 
 VALIDATORS:Dict[str,Callable[[str],bool]]={
     "ip":_valid_ip,"domain":_valid_domain,"url":_valid_url,"hash":_valid_hash,
@@ -297,7 +311,8 @@ def _normalise(typ:str,v:str)->str:
         return p._replace(query="",fragment="").geturl()
     if typ=="ip":
         return _strip_port(v)
-    if typ in ("domain","hash"): return v.lower()
+    if typ in ("domain","hash"):
+        return v.lower()
     return v
 
 def detect_ioc_type(value:str)->Tuple[str,str]:
@@ -306,7 +321,8 @@ def detect_ioc_type(value:str)->Tuple[str,str]:
     priority_order = ["hash", "url", "ip", "domain", "email", "filepath", "registry", "wallet", "asn", "attack"]
     for t in priority_order:
         f = VALIDATORS[t]
-        if f(v): return t,_normalise(t,v)
+        if f(v):
+            return t,_normalise(t,v)
     return "unknown",v
 
 def validate_ioc(value: str, expected_type: str | None = None) -> Tuple[bool, str, str, str]:
@@ -399,7 +415,6 @@ def _get_generic_validation_error(value: str) -> str:
 # ──────────────────────────────────────────────────────────────────────────────
 # Static-type-checker friendly stub
 # ---------------------------------------------------------------------------
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:  # executed only while running mypy/pyright, ignored at run-time
     from dataclasses import dataclass as _dataclass
 

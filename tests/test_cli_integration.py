@@ -2,7 +2,6 @@
 
 import pytest
 import sys
-import subprocess
 from unittest.mock import patch, MagicMock
 from pathlib import Path
 
@@ -47,7 +46,7 @@ class TestCLIIntegration:
         with patch('sys.argv', ['ioc_checker', '8.8.8.8']), \
              patch('ioc_checker.scan_ioc', return_value=test_results), \
              patch('asyncio.run') as mock_run, \
-             patch('builtins.print') as mock_print:
+             patch('builtins.print'):
             
             async def mock_scan_ioc(*args):
                 return test_results

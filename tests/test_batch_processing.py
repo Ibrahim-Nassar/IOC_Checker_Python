@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Unit tests for batch processing enhancements."""
 
-import pytest
-from unittest.mock import Mock
 from ioc_gui_tk import IOCCheckerGUI
 
 
@@ -95,5 +93,5 @@ class TestBatchProcessing:
                 os.unlink(temp_filename)
                 if csv_path:
                     os.unlink(csv_path)
-            except:
+            except Exception:
                 pass  # Best effort cleanup 

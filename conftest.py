@@ -2,7 +2,8 @@ import pytest
 import tkinter as tk
 import inspect
 import asyncio
-import pathlib, sys, os
+import pathlib
+import sys
 import warnings
 
 # ---------------------------------------------------------------------------
@@ -13,7 +14,9 @@ import warnings
 try:
     import psutil as psutil  # noqa: F401 – real psutil exists
 except ImportError:  # pragma: no cover
-    import types, tracemalloc, sys as sys
+    import types
+    import tracemalloc
+    import sys as sys
 
     tracemalloc.start()
 
@@ -48,6 +51,7 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*unawaited 
 ROOT_DIR = pathlib.Path(__file__).resolve().parent  # project root
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
+
 
 @pytest.fixture
 def gui():
@@ -104,7 +108,7 @@ def pytest_collection_modifyitems(items):
 
 def pytest_configure(config):  # noqa: D401 – simple hook
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -169,7 +173,7 @@ class _StubTk:
         return lambda *a, **k: None
 
 # Ensure the replacement is in place *after* sitecustomize ran.
-import tkinter as _tk
+import tkinter as _tk  # noqa: E402
 _tk.Tk = _StubTk  # type: ignore[attr-defined]
 
 # Variable stubs -----------------------------------------------------------

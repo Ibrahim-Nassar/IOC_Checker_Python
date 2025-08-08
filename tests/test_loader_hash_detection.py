@@ -1,5 +1,4 @@
 """Test that loader correctly detects 32-char and 40-char hashes."""
-import pytest
 import sys
 import os
 from pathlib import Path
@@ -43,7 +42,7 @@ class TestLoaderHashDetection:
         assert _guess_type(sha1_mixed) == "hash"
         
         # SHA256 with mixed case
-        sha256_mixed = "2CF24DBA4F21D4288094C6B92B0C3482f1c0b20a8b1d6ba5b5c8b15b4c9c6b1d"
+        sha256_mixed = "2CF24DBA4F21D4288094C6B92B0C3482F1c0b20A8B1D6BA5B5C8B15B4C9C6B1D"
         assert _guess_type(sha256_mixed) == "hash"
     
     def test_guess_type_non_hash_strings(self):
