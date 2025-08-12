@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 
-import httpx
+from .http_client import async_request
 from ioc_types import IOCResult, IOCStatus
 
 
@@ -31,8 +31,7 @@ class AbuseIPDBProvider:
         headers = {"Key": self._key, "Accept": "application/json"}
 
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(url, headers=headers)
+            resp = await async_request("GET", url, headers=headers, timeout=5.0)
 
             if resp.status_code != 200:
                 # Provide user-friendly error messages
@@ -54,7 +53,7 @@ class AbuseIPDBProvider:
                     error_msg = "AbuseIPDB server error"
                 else:
                     error_msg = f"HTTP {resp.status_code}"
-                
+
                 return IOCResult(
                     ioc=ioc,
                     ioc_type=ioc_type,
@@ -80,13 +79,14 @@ class AbuseIPDBProvider:
         except Exception as exc:
             # Provide user-friendly error messages
             error_msg = str(exc)
-            if "timeout" in error_msg.lower():
+            lower = error_msg.lower()
+            if "timeout" in lower:
                 error_msg = "Connection timeout - AbuseIPDB server slow to respond"
-            elif "connection" in error_msg.lower():
+            elif "connection" in lower:
                 error_msg = "Network connection error"
-            elif "json" in error_msg.lower() and "decode" in error_msg.lower():
+            elif "json" in lower and "decode" in lower:
                 error_msg = "Invalid response from AbuseIPDB server"
-            
+
             return IOCResult(
                 ioc=ioc,
                 ioc_type=ioc_type,

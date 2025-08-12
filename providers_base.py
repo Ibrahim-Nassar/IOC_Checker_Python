@@ -6,7 +6,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Literal
 
-import httpx
+from .http_client import async_request
 from ioc_types import IOCResult, IOCStatus
 
 
@@ -27,8 +27,14 @@ class BaseProvider(ABC):
         """Query the provider for IOC information. Must be implemented by subclasses."""
         pass
     
-    async def _safe_request(self, url: str, method: str = "GET", json_data: Dict[str, Any] = None, 
-                           headers: Dict[str, str] = None, max_retries: int = 3) -> Dict[str, Any]:
+    async def _safe_request(
+        self,
+        url: str,
+        method: str = "GET",
+        json_data: Dict[str, Any] | None = None,
+        headers: Dict[str, str] | None = None,
+        max_retries: int = 3,
+    ) -> Dict[str, Any]:
         """
         Perform a safe HTTP request with retries, status checking, and JSON parsing.
         
@@ -45,55 +51,33 @@ class BaseProvider(ABC):
         Raises:
             Exception: If request fails after all retries
         """
-        last_exception = None
-        
-        for attempt in range(max_retries):
-            try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
-                    if method.upper() == "GET":
-                        resp = await client.get(url, headers=headers)
-                    elif method.upper() == "POST":
-                        resp = await client.post(url, json=json_data or {}, headers=headers)
-                    else:
-                        raise ValueError(f"Unsupported HTTP method: {method}")
-                
-                # Check status code
-                if resp.status_code == 200:
-                    return resp.json()
-                elif resp.status_code == 429:  # Rate limited
-                    if attempt < max_retries - 1:
-                        wait_time = 2 ** attempt  # Exponential backoff
-                        logging.warning(f"{self.NAME}: Rate limited, waiting {wait_time}s before retry")
-                        await asyncio.sleep(wait_time)
-                        continue
-                    else:
-                        raise Exception(f"Rate limited after {max_retries} retries")
-                elif resp.status_code == 403:
-                    raise Exception("API key invalid or insufficient permissions")
-                elif resp.status_code == 404:
-                    raise Exception("Resource not found")
-                elif resp.status_code >= 500:
-                    if attempt < max_retries - 1:
-                        wait_time = 2 ** attempt
-                        logging.warning(f"{self.NAME}: Server error {resp.status_code}, retrying in {wait_time}s")
-                        await asyncio.sleep(wait_time)
-                        continue
-                    else:
-                        raise Exception(f"Server error {resp.status_code} after {max_retries} retries")
-                else:
-                    raise Exception(f"HTTP {resp.status_code}")
-                    
-            except Exception as e:
-                last_exception = e
-                if attempt < max_retries - 1:
-                    wait_time = 2 ** attempt
-                    logging.warning(f"{self.NAME}: Request failed ({e}), retrying in {wait_time}s")
-                    await asyncio.sleep(wait_time)
-                else:
-                    break
-        
-        # If we get here, all retries failed
-        raise last_exception or Exception("Request failed after all retries")
+        # Delegate to shared HTTP client with standardized retry/backoff
+        try:
+            resp = await async_request(
+                method=method,
+                url=url,
+                headers=headers,
+                json=json_data or {},
+                retries=max_retries,
+                timeout=self.timeout,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            raise exc
+
+        # Map common statuses to domain exceptions/messages for callers
+        if resp.status_code == 200:
+            return resp.json()
+        if resp.status_code == 403:
+            raise Exception("API key invalid or insufficient permissions")
+        if resp.status_code == 404:
+            raise Exception("Resource not found")
+        if resp.status_code >= 400:
+            raise Exception(f"HTTP {resp.status_code}")
+
+        # Fallback (should not reach)
+        raise Exception(f"Unexpected HTTP status {resp.status_code}")
     
     def _create_error_result(self, ioc: str, ioc_type: str, message: str) -> IOCResult:
         """Create a standardized error result."""
